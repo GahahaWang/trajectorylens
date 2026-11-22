@@ -60,7 +60,7 @@ public final class OverlayState {
     private final Map<String, Integer> autoColors = new LinkedHashMap<>(); // auto-assigned (ARGB)
     private final KeyMapping showKey = new KeyMapping(
         "key.trajectorylens.show",
-        InputConstants.Type.KEYSYM,
+        InputConstants.Type.KEYBOARD,
         InputConstants.KEY_G,
         KeyMapping.Category.MISC
     );

@@ -27,7 +27,7 @@ public final class KeySettings {
             return false;
         }
         for (int k : chord) {
-            if (!InputConstants.isKeyDown(win, k)) {
+            if (!InputConstants.isKeyDown(k)) {
                 return false;
             }
         }
@@ -69,6 +69,6 @@ public final class KeySettings {
     }
 
     public static String name(int code) {
-        return InputConstants.Type.KEYSYM.getOrCreate(code).getDisplayName().getString();
+        return InputConstants.Type.KEYBOARD.getOrCreate(code).getDisplayName().getString();
     }
 }

@@ -613,7 +613,7 @@ public class ModConfigScreen extends Screen {
             var win = this.minecraft.getWindow();
             boolean anyDown = false;
             for (int k : this.pressed) {
-                if (InputConstants.isKeyDown(win, k)) {
+                if (InputConstants.isKeyDown(k)) {
                     anyDown = true;
                     break;
                 }
