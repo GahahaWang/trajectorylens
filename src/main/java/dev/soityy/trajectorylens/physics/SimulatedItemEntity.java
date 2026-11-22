@@ -22,7 +22,7 @@ public class SimulatedItemEntity extends ItemEntity {
         CONTINUE, REST, BURNED, VOID, HORIZON, UNLOADED
     }
 
-    public static final int HORIZON_TICKS = 120;      // max predicted ticks (~6 s)
+    public static final int HORIZON_TICKS = 300;      // max predicted ticks (~15 s)
     public static final double REST_EPS = 1.0E-5;
 
     private StopReason lastStop = StopReason.CONTINUE;

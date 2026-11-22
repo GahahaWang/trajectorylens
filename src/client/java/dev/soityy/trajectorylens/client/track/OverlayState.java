@@ -1,5 +1,6 @@
 package dev.soityy.trajectorylens.client.track;
 
+import dev.soityy.trajectorylens.client.Lang;
 import dev.soityy.trajectorylens.client.ui.SettingsIO;
 
 import java.util.ArrayList;
@@ -14,12 +15,14 @@ import com.mojang.blaze3d.platform.InputConstants;
 import dev.soityy.trajectorylens.physics.ItemPhysicsSimulator;
 import dev.soityy.trajectorylens.physics.TrajectoryPath;
 import dev.soityy.trajectorylens.util.PathTools;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.Registry;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -37,6 +40,13 @@ public final class OverlayState {
 
     /** Total simultaneous trajectory lines. Shared fairly across item types present. */
     public static final int MAX_TRACKED = 24;
+
+    private static final double SEED_POS_EPS = 0.005;
+    private static final double SEED_VEL_EPS = 0.001;
+    private static final int REFRESH_TICKS = 20;
+    private static final int MAX_FOLLOW_STEPS = 4;
+    private static final double MOVING_DIST_SQR = 2.5E-5;
+    private static final double REST_DIST_SQR = 1.0E-5;
 
     /** Auto-assign palette (ARGB, strong alpha). Deep purple first = classic look. */
     public static final int[] PALETTE = {
@@ -59,7 +69,7 @@ public final class OverlayState {
     private boolean enabled;   // G toggles tracking display on/off
     /** Item types explicitly watched; empty list = track every type. Repeated /target adds. */
     private final List<Item> watchItems = new ArrayList<>();
-    private String targetName = "all items";
+    private String targetName = "";
 
     public static final class TrackedItem {
         public ItemEntity entity;
@@ -97,7 +107,7 @@ public final class OverlayState {
         if (!this.watchItems.contains(item)) {
             this.watchItems.add(item);
         }
-        this.rebuildTargetName(name == null ? "item" : name);
+        this.rebuildTargetName(name == null ? "?" : name);
         this.tracked.clear();
     }
 
@@ -108,7 +118,7 @@ public final class OverlayState {
         }
         this.watchItems.remove(item);
         if (this.watchItems.isEmpty()) {
-            this.targetName = "all items";
+            this.targetName = "";
         } else {
             this.rebuildTargetName("");
         }
@@ -123,7 +133,7 @@ public final class OverlayState {
     /** Empty the watch list -> track every item type again. */
     public void clearTargets() {
         this.watchItems.clear();
-        this.targetName = "all items";
+        this.targetName = "";
         this.tracked.clear();
     }
 
@@ -148,7 +158,7 @@ public final class OverlayState {
     }
 
     public String targetName() {
-        return this.targetName;
+        return this.watchItems.isEmpty() ? Lang.tr("trajectorylens.drops.all_items") : this.targetName;
     }
 
     /** Canonical registry id ("ns:path") of the item inside the stack, or null. */
@@ -156,15 +166,7 @@ public final class OverlayState {
         if (stack == null || stack.isEmpty()) {
             return null;
         }
-        ClientLevel level = Minecraft.getInstance().level;
-        if (level == null) {
-            return null;
-        }
-        Registry<Item> reg = level.registryAccess().lookup(Registries.ITEM).orElse(null);
-        if (reg == null) {
-            return null;
-        }
-        Identifier key = reg.getKey(stack.getItem());
+        Identifier key = BuiltInRegistries.ITEM.getKey(stack.getItem());
         return key == null ? null : key.toString();
     }
 
@@ -193,7 +195,7 @@ public final class OverlayState {
      */
     public @org.jspecify.annotations.Nullable String setItemColor(String id, String colorSpec) {
         if (id == null) {
-            return "null item";
+            return Lang.tr("trajectorylens.error.no_id");
         }
         if (colorSpec == null || colorSpec.trim().equalsIgnoreCase("auto")) {
             this.itemColors.remove(id);
@@ -201,7 +203,7 @@ public final class OverlayState {
         } else {
             Integer argb = PathTools.parseColor(colorSpec);
             if (argb == null) {
-                return "bad color '" + colorSpec + "' — use RRGGBB or AARRGGBB, or 'auto'";
+                return Lang.tr("trajectorylens.error.bad_color", colorSpec);
             }
             this.itemColors.put(id, argb);
         }
@@ -216,22 +218,28 @@ public final class OverlayState {
 
     /** Human-readable overview: on/off, target, and the color table. */
     public String listing() {
+        String table = colorTable(this.itemColors, this.autoColors);
+        String colors = table.isEmpty()
+            ? Lang.tr("trajectorylens.drops.no_colors")
+            : Lang.tr("trajectorylens.common.colors", table);
+        return Lang.tr("trajectorylens.drops.listing", Lang.onOff(this.enabled), this.targetName(), colors);
+    }
+
+    static String colorTable(Map<String, Integer> explicit, Map<String, Integer> auto) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>(explicit.keySet());
+        ids.addAll(auto.keySet());
         StringBuilder sb = new StringBuilder();
-        sb.append(this.enabled ? "on" : "off").append(" | target=").append(this.targetName);
-        LinkedHashSet<String> ids = new LinkedHashSet<>(this.itemColors.keySet());
-        ids.addAll(this.autoColors.keySet());
-        if (ids.isEmpty()) {
-            sb.append(" | colors: none yet (auto-assign on first drop)");
-            return sb.toString();
-        }
-        sb.append(" | colors:");
         for (String id : ids) {
-            Integer c = this.itemColors.get(id);
-            boolean auto = c == null;
-            int argb = auto ? this.autoColors.get(id) : c;
-            sb.append(" ").append(id).append("=#")
-                .append(String.format("%06X", argb & 0xFFFFFF))
-                .append(auto ? "(auto)" : "");
+            Integer c = explicit.get(id);
+            boolean isAuto = c == null;
+            int argb = isAuto ? auto.get(id) : c;
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(id).append("=#").append(String.format("%06X", argb & 0xFFFFFF));
+            if (isAuto) {
+                sb.append(Lang.tr("trajectorylens.common.auto_suffix"));
+            }
         }
         return sb.toString();
     }
@@ -243,7 +251,7 @@ public final class OverlayState {
     public @org.jspecify.annotations.Nullable String setTargetFromId(String raw) {
         ClientLevel level = Minecraft.getInstance().level;
         if (level == null) {
-            return "not in a world";
+            return Lang.tr("trajectorylens.error.no_world");
         }
         String id = raw.trim();
         String ns;
@@ -260,11 +268,11 @@ public final class OverlayState {
         try {
             parsed = Identifier.fromNamespaceAndPath(ns, path);
         } catch (Exception ex) {
-            return "invalid item id: " + id;
+            return Lang.tr("trajectorylens.error.invalid_item", id);
         }
         Registry<Item> items = level.registryAccess().lookup(Registries.ITEM).orElse(null);
         if (items == null || !items.containsKey(parsed)) {
-            return "unknown item: " + id;
+            return Lang.tr("trajectorylens.error.unknown_item", id);
         }
         this.addTarget(items.getValue(parsed), parsed.toString());
         return null;
@@ -341,8 +349,7 @@ public final class OverlayState {
                 it.remove();
                 continue;
             }
-            Vec3 v = entity.getDeltaMovement();
-            boolean resting = entity.onGround() && v.lengthSqr() < 1.0E-5;
+            boolean resting = entity.onGround() && movedSqr(entity) < REST_DIST_SQR;
             e.getValue().idleTicks = resting ? e.getValue().idleTicks + 1 : 0;
             if (e.getValue().idleTicks > 60) { // ~3 s after coming to rest
                 it.remove();
@@ -359,25 +366,25 @@ public final class OverlayState {
         // Collect moving drops, then hand out trajectory slots FAIRLY per item type:
         // when N different item types are in range, every type gets up to MAX/N lines,
         // so a flood of one type can never starve the others.
-        Map<String, List<ItemEntity>> byType = new LinkedHashMap<>();
+        Map<Item, List<ItemEntity>> byType = new LinkedHashMap<>();
         for (ItemEntity entity : level.getEntitiesOfClass(ItemEntity.class, mc.player.getBoundingBox().inflate(32.0))) {
             if (!entity.isAlive() || entity.getItem().isEmpty()) {
                 continue;
             }
-            if (!this.isWatching(entity.getItem().getItem())) {
+            Item item = entity.getItem().getItem();
+            if (!this.isWatching(item)) {
                 continue;
             }
-            Vec3 vel = entity.getDeltaMovement();
-            boolean fastEnough = vel.lengthSqr() > 2.5E-5;
-            if (!fastEnough) {
+            boolean moving = !entity.onGround() || movedSqr(entity) > MOVING_DIST_SQR;
+            if (!moving) {
                 continue; // only moving drops are interesting
             }
-            String typeId = itemIdOf(entity.getItem());
-            byType.computeIfAbsent(typeId == null ? "?" : typeId, k -> new ArrayList<>()).add(entity);
+            byType.computeIfAbsent(item, k -> new ArrayList<>()).add(entity);
         }
         int typeCount = byType.size();
         int perType = typeCount <= 1 ? MAX_TRACKED : Math.max(1, MAX_TRACKED / typeCount);
         int chosenCount = 0;
+        IntOpenHashSet refreshed = new IntOpenHashSet();
         outer:
         for (List<ItemEntity> group : byType.values()) {
             int taken = 0;
@@ -391,11 +398,21 @@ public final class OverlayState {
                 taken++;
                 chosenCount++;
                 this.refreshTracked(level, entity);
+                refreshed.add(entity.getId());
+            }
+        }
+        for (int id : new ArrayList<>(this.tracked.keySet())) {
+            if (refreshed.contains(id) || !(level.getEntity(id) instanceof ItemEntity entity)) {
+                continue;
+            }
+            if (this.isWatching(entity.getItem().getItem()) && (!entity.onGround() || movedSqr(entity) > MOVING_DIST_SQR)) {
+                this.refreshTracked(level, entity);
             }
         }
     }
 
     private void refreshTracked(ClientLevel level, ItemEntity entity) {
+        Vec3 pos = entity.position();
         Vec3 vel = entity.getDeltaMovement();
         int id = entity.getId();
         TrackedItem t = this.tracked.get(id);
@@ -409,20 +426,47 @@ public final class OverlayState {
             this.tracked.put(id, t);
         }
         t.refreshCounter++;
-        boolean seedChanged = t.lastSeedPos.distanceToSqr(entity.position()) > 0.005
-            || t.lastSeedVel.distanceToSqr(vel) > 0.001;
-        if (t.path == null || seedChanged || t.refreshCounter >= 20) {
-            t.lastSeedPos = entity.position();
+        int step = t.path == null || t.refreshCounter >= REFRESH_TICKS ? -1 : followedStep(t, pos, vel);
+        if (step < 0) {
+            t.lastSeedPos = pos;
             t.lastSeedVel = vel;
             t.refreshCounter = 0;
             String itemId = itemIdOf(entity.getItem());
             t.color = this.colorForId(itemId);
-            t.path = t.sim.simulate(t.lastSeedPos.x, t.lastSeedPos.y, t.lastSeedPos.z,
-                vel.x, vel.y, vel.z, entity.getItem());
+            t.path = t.sim.simulate(pos.x, pos.y, pos.z, vel.x, vel.y, vel.z, entity.getItem());
+        } else if (step > 0) {
+            t.lastSeedPos = t.path.points.get(step);
+            t.lastSeedVel = t.path.vels.get(step);
+            t.path.advance(step);
         }
         // make sure the path starts where the entity is now (sim result is anchored)
         if (t.path != null && !t.path.points.isEmpty()) {
-            t.path.points.set(0, entity.position());
+            t.path.points.set(0, pos);
         }
+    }
+
+    private static double movedSqr(ItemEntity entity) {
+        return entity.position().distanceToSqr(entity.xo, entity.yo, entity.zo);
+    }
+
+    private static int followedStep(TrackedItem t, Vec3 pos, Vec3 vel) {
+        int best = -1;
+        double bestErr = Double.MAX_VALUE;
+        double seedErr = t.lastSeedPos.distanceToSqr(pos);
+        if (seedErr <= SEED_POS_EPS && t.lastSeedVel.distanceToSqr(vel) <= SEED_VEL_EPS) {
+            best = 0;
+            bestErr = seedErr;
+        }
+        List<Vec3> points = t.path.points;
+        List<Vec3> vels = t.path.vels;
+        int last = Math.min(MAX_FOLLOW_STEPS, Math.min(points.size(), vels.size()) - 1);
+        for (int k = 1; k <= last; k++) {
+            double err = points.get(k).distanceToSqr(pos);
+            if (err <= SEED_POS_EPS && err < bestErr && vels.get(k).distanceToSqr(vel) <= SEED_VEL_EPS) {
+                best = k;
+                bestErr = err;
+            }
+        }
+        return best;
     }
 }

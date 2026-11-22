@@ -33,9 +33,9 @@ public final class Report {
     public static List<String> lines(OverlayState state, WalkRangeOverlay ranges, ProjectileOverlay proj,
                                      FlowTracker flow, EntityCensus census, ThreatOverlay threats, LootTracker loot) {
         List<String> out = new ArrayList<>();
-        out.add("TrajectoryLens report " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        out.add(Lang.tr("trajectorylens.report.title", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
         out.add("");
-        out.add(Lang.tr("[开关]"));
+        out.add(Lang.tr("trajectorylens.report.section_switches"));
         out.add("  " + state.listing());
         out.add("  " + ranges.summary());
         out.add("  " + proj.summary());
@@ -43,23 +43,24 @@ public final class Report {
         out.add("  " + threats.summary());
         out.add("  " + loot.summary());
         out.add("");
-        out.add(Lang.tr("[实体普查]"));
+        out.add(Lang.tr("trajectorylens.report.section_census"));
         out.addAll(indent(census.report()));
         out.add("");
-        out.add(Lang.tr("[卡口计数器]"));
+        out.add(Lang.tr("trajectorylens.report.section_counters"));
         if (flow.counters().isEmpty()) {
-            out.add(Lang.tr("  (无)"));
+            out.add(Lang.tr("trajectorylens.report.none"));
         } else {
             for (FlowTracker.Counter c : flow.counters().values()) {
-                out.add(String.format(Lang.tr("  %s @ (%.1f, %.1f, %.1f): %d/min (%d/min 5分钟均值) 趋势%s 堆积%.0f 累计%d 面%dx%d"),
-                    c.name, c.x, c.y, c.z, c.perMinute(), (int) c.perMinute5(), c.spark(), c.backlog, c.total, (int) c.w, (int) c.h));
+                out.add(Lang.tr("trajectorylens.report.counter_line",
+                    c.name, Lang.fixed(c.x, 1), Lang.fixed(c.y, 1), Lang.fixed(c.z, 1), c.perMinute(), (int) c.perMinute5(),
+                    c.spark(), Lang.fixed(c.backlog, 0), c.total, (int) c.w, (int) c.h));
             }
         }
         out.add("");
-        out.add(Lang.tr("[堵塞]"));
+        out.add(Lang.tr("trajectorylens.report.section_jams"));
         out.add("  " + flow.jamSummary());
         out.add("");
-        out.add(Lang.tr("[失踪溯源]"));
+        out.add(Lang.tr("trajectorylens.report.section_lost"));
         out.addAll(indent(loot.report()));
         return out;
     }

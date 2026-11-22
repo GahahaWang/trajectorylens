@@ -10,6 +10,7 @@ import dev.soityy.trajectorylens.client.Lang;
 import dev.soityy.trajectorylens.client.TrajectoryLensClient;
 import dev.soityy.trajectorylens.client.ui.Report;
 import dev.soityy.trajectorylens.client.ui.SettingsIO;
+import dev.soityy.trajectorylens.util.PathTools;
 
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -70,7 +71,7 @@ public final class ClientCommands {
                 })
                 .then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("clear").executes(ctx -> {
                     TrajectoryLensClient.loot().clear();
-                    ctx.getSource().sendFeedback(Component.literal(Lang.tr("[TrajectoryLens] 失踪记录已清空")));
+                    ctx.getSource().sendFeedback(Component.literal(Lang.tr("trajectorylens.command.lost_cleared")));
                     return 1;
                 })));
             root.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("threat")
@@ -94,9 +95,9 @@ public final class ClientCommands {
             root.then(switchNode("jam", TrajectoryLensClient.flow(), state, ranges, projectiles, flow));
             root.then(switchNode("despawn", TrajectoryLensClient.loot(), state, ranges, projectiles, flow));
             root.then(switchNode("falling", TrajectoryLensClient.projectiles(), state, ranges, projectiles, flow));
-            root.then(lostTimeTree("jamtime", Lang.tr("堵塞判定时长"), TimeKind.JAM, state, ranges, projectiles, flow));
-            root.then(lostTimeTree("losttime", Lang.tr("失踪标记显示"), TimeKind.MARKER, state, ranges, projectiles, flow));
-            root.then(lostTimeTree("glowtime", Lang.tr("漏斗高亮时长"), TimeKind.GLOW, state, ranges, projectiles, flow));
+            root.then(lostTimeTree("jamtime", "trajectorylens.feature.jam_time", TimeKind.JAM, state, ranges, projectiles, flow));
+            root.then(lostTimeTree("losttime", "trajectorylens.feature.lost_time", TimeKind.MARKER, state, ranges, projectiles, flow));
+            root.then(lostTimeTree("glowtime", "trajectorylens.feature.glow_time", TimeKind.GLOW, state, ranges, projectiles, flow));
             root.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("chaindepth")
                 .executes(ctx -> chainOption(ctx.getSource(), state, ranges, projectiles, flow, -1, true))
                 .then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("layers", IntegerArgumentType.integer(1, 4))
@@ -111,8 +112,8 @@ public final class ClientCommands {
                 var f = Report.write(Report.lines(state, ranges, projectiles, flow, TrajectoryLensClient.census(),
                     TrajectoryLensClient.threats(), TrajectoryLensClient.loot()));
                 ctx.getSource().sendFeedback(Component.literal(f != null
-                    ? Lang.tr("[TrajectoryLens] 报告已写入 ") + f.getName()
-                    : Lang.tr("[TrajectoryLens] 报告写入失败")));
+                    ? Lang.tr("trajectorylens.command.report_written", f.getName())
+                    : Lang.tr("trajectorylens.command.report_failed")));
                 return 1;
             }));
             root.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("flowcount")
@@ -134,7 +135,7 @@ public final class ClientCommands {
         tree.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("clear")
             .executes(ctx -> {
                 state.clearTargets();
-                ctx.getSource().sendFeedback(Component.literal("[TrajectoryLens] watch cleared: tracking all items"));
+                ctx.getSource().sendFeedback(Component.literal(Lang.tr("trajectorylens.command.watch_cleared")));
                 return 1;
             }));
         tree.then(RequiredArgumentBuilder.<FabricClientCommandSource, String>argument("item", StringArgumentType.string())
@@ -147,7 +148,7 @@ public final class ClientCommands {
                     return 0;
                 }
                 ctx.getSource().sendFeedback(Component.literal(
-                    "[TrajectoryLens] added " + raw + " — watching: " + state.targetName()));
+                    Lang.tr("trajectorylens.command.target_added", raw, state.targetName())));
                 return 1;
             }));
         return tree;
@@ -176,13 +177,13 @@ public final class ClientCommands {
                         ctx.getSource().sendError(Component.literal("[TrajectoryLens] " + err));
                         return 0;
                     }
-                    ctx.getSource().sendFeedback(Component.literal("[TrajectoryLens] added " + raw + " — " + ranges.summary()));
+                    ctx.getSource().sendFeedback(Component.literal(Lang.tr("trajectorylens.command.range_added", raw, ranges.summary())));
                     return 1;
                 })));
         tree.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("clear")
             .executes(ctx -> {
                 ranges.clearTypes();
-                ctx.getSource().sendFeedback(Component.literal("[TrajectoryLens] range watch cleared"));
+                ctx.getSource().sendFeedback(Component.literal(Lang.tr("trajectorylens.command.range_cleared")));
                 return 1;
             }));
         tree.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("list")
@@ -194,7 +195,7 @@ public final class ClientCommands {
             .then(RequiredArgumentBuilder.<FabricClientCommandSource, Integer>argument("seconds", IntegerArgumentType.integer(1, 60))
                 .executes(ctx -> {
                     ranges.setHorizon(IntegerArgumentType.getInteger(ctx, "seconds"));
-                    ctx.getSource().sendFeedback(Component.literal("[TrajectoryLens] range horizon = " + ranges.horizonSeconds() + "s"));
+                    ctx.getSource().sendFeedback(Component.literal(Lang.tr("trajectorylens.command.range_time", ranges.horizonSeconds())));
                     return 1;
                 })));
         tree.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("color")
@@ -206,7 +207,8 @@ public final class ClientCommands {
                         String spec = StringArgumentType.getString(ctx, "color");
                         String typeId = WalkRangeOverlay.canonicalTypeId(WalkRangeOverlay.resolveType(typeRaw));
                         if (typeId == null) {
-                            ctx.getSource().sendError(Component.literal("[TrajectoryLens] unknown entity type: " + typeRaw));
+                            ctx.getSource().sendError(Component.literal(
+                                "[TrajectoryLens] " + Lang.tr("trajectorylens.error.unknown_entity_type", typeRaw)));
                             return 0;
                         }
                         String err = ranges.setColor(typeId, spec);
@@ -214,16 +216,30 @@ public final class ClientCommands {
                             ctx.getSource().sendError(Component.literal("[TrajectoryLens] " + err));
                             return 0;
                         }
-                        ctx.getSource().sendFeedback(Component.literal("[TrajectoryLens] range color of " + typeId + " -> " + spec));
+                        ctx.getSource().sendFeedback(Component.literal(
+                            Lang.tr("trajectorylens.command.range_color", typeId, colorLabel(spec))));
                         return 1;
                     }))));
         tree.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("toggle")
             .executes(ctx -> {
                 ranges.toggle();
-                ctx.getSource().sendFeedback(Component.literal("[TrajectoryLens] walk ranges " + (ranges.isEnabled() ? "on" : "off")));
+                ctx.getSource().sendFeedback(Component.literal(changed("trajectorylens.feature.range", Lang.onOff(ranges.isEnabled()))));
                 return 1;
             }));
         return tree;
+    }
+
+    public static String changed(String featureKey, String value) {
+        return Lang.tr("trajectorylens.command.changed", Lang.tr(featureKey), value);
+    }
+
+    public static String colorLabel(String spec) {
+        String trimmed = spec.trim();
+        if (trimmed.equalsIgnoreCase("auto")) {
+            return Lang.tr("trajectorylens.common.auto");
+        }
+        Integer argb = PathTools.parseColor(trimmed);
+        return argb == null ? trimmed : "#" + SettingsIO.specOf(argb);
     }
 
     /** on / off / toggle switch for the projectile & TNT overlays. */
@@ -231,7 +247,7 @@ public final class ClientCommands {
         LootTracker loot = TrajectoryLensClient.loot();
         boolean value = on != null ? on : !loot.enabled();
         loot.setEnabled(value);
-        src.sendFeedback(Component.literal(Lang.tr("[TrajectoryLens] 失踪溯源 -> ") + (value ? Lang.tr("开") : Lang.tr("关"))));
+        src.sendFeedback(Component.literal(changed("trajectorylens.feature.losttrack", Lang.onOff(value))));
         return 1;
     }
 
@@ -240,7 +256,7 @@ public final class ClientCommands {
         boolean value = on != null ? on : !threats.enabled();
         threats.setEnabled(value);
         SettingsIO.snapshot(state, ranges, proj, flow, threats, TrajectoryLensClient.loot()).save();
-        src.sendFeedback(Component.literal(Lang.tr("[TrajectoryLens] 威胁指示 -> ") + (value ? Lang.tr("开") : Lang.tr("关"))));
+        src.sendFeedback(Component.literal(changed("trajectorylens.feature.threat", Lang.onOff(value))));
         return 1;
     }
 
@@ -249,7 +265,7 @@ public final class ClientCommands {
         boolean value = on != null ? on : !proj.aimEnabled();
         proj.setAim(value);
         SettingsIO.snapshot(state, ranges, proj, flow, TrajectoryLensClient.threats(), TrajectoryLensClient.loot()).save();
-        src.sendFeedback(Component.literal(Lang.tr("[TrajectoryLens] 手持瞄准预测 -> ") + (value ? Lang.tr("开") : Lang.tr("关"))));
+        src.sendFeedback(Component.literal(changed("trajectorylens.feature.aim", Lang.onOff(value))));
         return 1;
     }
 
@@ -270,20 +286,20 @@ public final class ClientCommands {
         String label;
         boolean value;
         if (target instanceof FlowTracker f) {
-            label = Lang.tr("漏斗堵塞检测");
+            label = "trajectorylens.feature.jam";
             value = on != null ? on : !f.jamEnabled();
             f.setJam(value);
         } else if (target instanceof LootTracker l) {
-            label = Lang.tr("物品寿命提醒");
+            label = "trajectorylens.feature.despawn";
             value = on != null ? on : !l.despawnWarnEnabled();
             l.setDespawnWarn(value);
         } else {
-            label = Lang.tr("下落方块落点");
+            label = "trajectorylens.feature.falling";
             value = on != null ? on : !proj.fallingEnabled();
             proj.setFalling(value);
         }
         SettingsIO.snapshot(state, ranges, proj, flow, TrajectoryLensClient.threats(), TrajectoryLensClient.loot()).save();
-        src.sendFeedback(Component.literal("[TrajectoryLens] " + label + " -> " + (value ? Lang.tr("开") : Lang.tr("关"))));
+        src.sendFeedback(Component.literal(changed(label, Lang.onOff(value))));
         return 1;
     }
 
@@ -331,7 +347,7 @@ public final class ClientCommands {
             }
         }
         SettingsIO.snapshot(state, ranges, proj, flow, TrajectoryLensClient.threats(), loot).save();
-        src.sendFeedback(Component.literal("[TrajectoryLens] " + Lang.tr(label) + " -> " + now + " " + Lang.tr("秒")));
+        src.sendFeedback(Component.literal(changed(label, Lang.tr("trajectorylens.common.seconds", now))));
         return 1;
     }
 
@@ -352,8 +368,9 @@ public final class ClientCommands {
             }
         }
         SettingsIO.snapshot(state, ranges, proj, flow, TrajectoryLensClient.threats(), TrajectoryLensClient.loot()).save();
-        src.sendFeedback(Component.literal("[TrajectoryLens] " + (depth ? Lang.tr("因果链层数") : Lang.tr("击退推演时长")) + " -> "
-            + (depth ? proj.chainDepth() + Lang.tr(" 层") : proj.chainHorizonSeconds() + Lang.tr(" 秒"))));
+        src.sendFeedback(Component.literal(depth
+            ? changed("trajectorylens.feature.chain_depth", Lang.tr("trajectorylens.common.layers", proj.chainDepth()))
+            : changed("trajectorylens.feature.chain_horizon", Lang.tr("trajectorylens.common.seconds", proj.chainHorizonSeconds()))));
         return 1;
     }
 
@@ -362,7 +379,7 @@ public final class ClientCommands {
         boolean value = on != null ? on : !proj.chainEnabled();
         proj.setChain(value);
         SettingsIO.snapshot(state, ranges, proj, flow, TrajectoryLensClient.threats(), TrajectoryLensClient.loot()).save();
-        src.sendFeedback(Component.literal(Lang.tr("[TrajectoryLens] 因果链推演 -> ") + (value ? Lang.tr("开") : Lang.tr("关"))));
+        src.sendFeedback(Component.literal(changed("trajectorylens.feature.chain", Lang.onOff(value))));
         return 1;
     }
 
@@ -377,7 +394,7 @@ public final class ClientCommands {
                 };
                 flow.setCounters(on);
                 SettingsIO.snapshot(state, ranges, proj, flow, TrajectoryLensClient.threats(), TrajectoryLensClient.loot()).save();
-                ctx.getSource().sendFeedback(Component.literal(Lang.tr("[TrajectoryLens] 卡口计数器 -> ") + (on ? Lang.tr("开") : Lang.tr("关"))));
+                ctx.getSource().sendFeedback(Component.literal(changed("trajectorylens.feature.counters", Lang.onOff(on))));
                 return 1;
             });
     }
@@ -395,7 +412,7 @@ public final class ClientCommands {
                         return 0;
                     }
                     SettingsIO.snapshot(state, ranges, proj, flow, TrajectoryLensClient.threats(), TrajectoryLensClient.loot()).save();
-                    ctx.getSource().sendFeedback(Component.literal(Lang.tr("[TrajectoryLens] 已添加计数器: ") + name + Lang.tr(" (准星处)")));
+                    ctx.getSource().sendFeedback(Component.literal(Lang.tr("trajectorylens.command.counter_added", name)));
                     return 1;
                 })));
         tree.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("remove")
@@ -404,13 +421,14 @@ public final class ClientCommands {
                     String name = StringArgumentType.getString(ctx, "name");
                     boolean ok = flow.removeCounter(name);
                     SettingsIO.snapshot(state, ranges, proj, flow, TrajectoryLensClient.threats(), TrajectoryLensClient.loot()).save();
-                    ctx.getSource().sendFeedback(Component.literal("[TrajectoryLens] " + (ok ? Lang.tr("已移除 ") + name : Lang.tr("没有 ") + name)));
+                    ctx.getSource().sendFeedback(Component.literal(Lang.tr(ok
+                        ? "trajectorylens.command.counter_removed" : "trajectorylens.command.counter_missing", name)));
                     return ok ? 1 : 0;
                 })));
         tree.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("clear").executes(ctx -> {
             flow.clearCounters();
             SettingsIO.snapshot(state, ranges, proj, flow, TrajectoryLensClient.threats(), TrajectoryLensClient.loot()).save();
-            ctx.getSource().sendFeedback(Component.literal(Lang.tr("[TrajectoryLens] 已清空计数器")));
+            ctx.getSource().sendFeedback(Component.literal(Lang.tr("trajectorylens.command.counters_cleared")));
             return 1;
         }));
         tree.then(LiteralArgumentBuilder.<FabricClientCommandSource>literal("list").executes(ctx -> {
@@ -438,8 +456,8 @@ public final class ClientCommands {
                         proj.setTnt(on);
                     }
                     SettingsIO.snapshot(state, ranges, proj, flow, TrajectoryLensClient.threats(), TrajectoryLensClient.loot()).save();
-                    ctx.getSource().sendFeedback(Component.literal("[TrajectoryLens] "
-                        + (isProjectiles ? Lang.tr("投掷物轨迹") : Lang.tr("TNT 爆炸预测")) + " -> " + (on ? Lang.tr("开") : Lang.tr("关"))));
+                    ctx.getSource().sendFeedback(Component.literal(changed(
+                        isProjectiles ? "trajectorylens.feature.projectiles" : "trajectorylens.feature.tnt", Lang.onOff(on))));
                     return 1;
                 }));
         }
@@ -459,7 +477,7 @@ public final class ClientCommands {
         return LiteralArgumentBuilder.<FabricClientCommandSource>literal("toggle")
             .executes(ctx -> {
                 state.toggle();
-                ctx.getSource().sendFeedback(Component.literal("[TrajectoryLens] drops " + (state.visible() ? "on" : "off")));
+                ctx.getSource().sendFeedback(Component.literal(changed("trajectorylens.feature.drops", Lang.onOff(state.visible()))));
                 return 1;
             });
     }
@@ -475,7 +493,7 @@ public final class ClientCommands {
 
     private static int setColorLocal(FabricClientCommandSource src, OverlayState state, String itemRaw, String colorRaw) {
         if (src.getLevel() == null) {
-            src.sendError(Component.literal("[TrajectoryLens] not in a world"));
+            src.sendError(Component.literal("[TrajectoryLens] " + Lang.tr("trajectorylens.error.no_world")));
             return 0;
         }
         String id = itemRaw.trim();
@@ -493,12 +511,12 @@ public final class ClientCommands {
         try {
             parsed = Identifier.fromNamespaceAndPath(ns, path);
         } catch (Exception ex) {
-            src.sendError(Component.literal("[TrajectoryLens] invalid item id: " + itemRaw));
+            src.sendError(Component.literal("[TrajectoryLens] " + Lang.tr("trajectorylens.error.invalid_item", itemRaw)));
             return 0;
         }
         Registry<Item> items = src.getLevel().registryAccess().lookup(Registries.ITEM).orElse(null);
         if (items == null || !items.containsKey(parsed)) {
-            src.sendError(Component.literal("[TrajectoryLens] unknown item: " + itemRaw));
+            src.sendError(Component.literal("[TrajectoryLens] " + Lang.tr("trajectorylens.error.unknown_item", itemRaw)));
             return 0;
         }
         String err = state.setItemColor(parsed.toString(), colorRaw.trim());
@@ -506,7 +524,7 @@ public final class ClientCommands {
             src.sendError(Component.literal("[TrajectoryLens] " + err));
             return 0;
         }
-        src.sendFeedback(Component.literal("[TrajectoryLens] color of " + parsed + " -> " + colorRaw.trim()));
+        src.sendFeedback(Component.literal(Lang.tr("trajectorylens.command.item_color", parsed, colorLabel(colorRaw))));
         return 1;
     }
 

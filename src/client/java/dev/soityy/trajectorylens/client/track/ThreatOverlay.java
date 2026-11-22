@@ -69,8 +69,8 @@ public final class ThreatOverlay {
                 alert++;
             }
         }
-        return Lang.tr("威胁指示=") + (this.on ? "on" : "off") + Lang.tr(", 锁定") + locked + Lang.tr(" 警戒") + alert
-            + Lang.tr(" 未察觉") + (this.threats.size() - locked - alert);
+        return Lang.tr("trajectorylens.threat.summary", Lang.onOff(this.on), locked, alert,
+            this.threats.size() - locked - alert);
     }
 
     public void tick(Minecraft mc) {

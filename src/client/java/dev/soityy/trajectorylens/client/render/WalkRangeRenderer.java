@@ -3,11 +3,11 @@ package dev.soityy.trajectorylens.client.render;
 import dev.soityy.trajectorylens.client.track.WalkRangeEngine;
 import dev.soityy.trajectorylens.client.track.WalkRangeOverlay;
 
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 
 import dev.soityy.trajectorylens.client.track.WalkRangeOverlay.RegionEntry;
+import dev.soityy.trajectorylens.util.PathTools;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.gizmos.GizmoStyle;
@@ -29,9 +29,6 @@ public final class WalkRangeRenderer {
     private static final double INSET = 0.03;
 
     private WalkRangeRenderer() {
-    }
-
-    private record CellDist(long key, double dist2) {
     }
 
     public static void draw(WalkRangeOverlay overlay) {
@@ -59,16 +56,9 @@ public final class WalkRangeRenderer {
             double mobZ = e.mob.getZ();
 
             // 1) nearest cells only -> grid squares around the mob
-            List<CellDist> near = new ArrayList<>();
-            for (long k : r.cellKeys) {
-                double dx = WalkRangeEngine.cellX(k) + 0.5 - mobX;
-                double dz = WalkRangeEngine.cellZ(k) + 0.5 - mobZ;
-                near.add(new CellDist(k, dx * dx + dz * dz));
-            }
-            near.sort(Comparator.comparingDouble(CellDist::dist2));
-            int drawn = Math.min(NEAR_CELLS_PER_MOB, near.size());
-            for (int i = 0; i < drawn && lineBudget >= 4; i++) {
-                long k = near.get(i).key();
+            long[] near = nearestCells(e, r, mobX, mobZ);
+            for (int i = 0; i < near.length && lineBudget >= 4; i++) {
+                long k = near[i];
                 int cx = WalkRangeEngine.cellX(k);
                 int cy = WalkRangeEngine.cellY(k);
                 int cz = WalkRangeEngine.cellZ(k);
@@ -97,5 +87,29 @@ public final class WalkRangeRenderer {
                 break;
             }
         }
+    }
+
+    private static long[] nearestCells(RegionEntry e, WalkRangeEngine.Region r, double mobX, double mobZ) {
+        if (e.nearCells != null && e.nearRegion == r && e.nearX == mobX && e.nearZ == mobZ) {
+            return e.nearCells;
+        }
+        LongArrayList keys = r.cellKeys;
+        double[] dist = new double[keys.size()];
+        for (int i = 0; i < dist.length; i++) {
+            long k = keys.getLong(i);
+            double dx = WalkRangeEngine.cellX(k) + 0.5 - mobX;
+            double dz = WalkRangeEngine.cellZ(k) + 0.5 - mobZ;
+            dist[i] = dx * dx + dz * dz;
+        }
+        int[] order = PathTools.smallestIndices(dist, NEAR_CELLS_PER_MOB);
+        long[] near = new long[order.length];
+        for (int i = 0; i < order.length; i++) {
+            near[i] = keys.getLong(order[i]);
+        }
+        e.nearCells = near;
+        e.nearRegion = r;
+        e.nearX = mobX;
+        e.nearZ = mobZ;
+        return near;
     }
 }

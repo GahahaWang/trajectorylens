@@ -1,5 +1,6 @@
 package dev.soityy.trajectorylens.client.render;
 
+import dev.soityy.trajectorylens.client.Lang;
 import dev.soityy.trajectorylens.client.track.OverlayState;
 
 import dev.soityy.trajectorylens.client.track.OverlayState.TrackedItem;
@@ -104,13 +105,13 @@ public final class TrajectoryRenderer {
                 int discStroke = PathTools.lerpArgb(0xFF000000 | rgb, 0xFFFFFFFF, 0.6F) | 0xFF000000;
                 Gizmos.circle(end, 0.5F, GizmoStyle.strokeAndFill(discStroke, 1.8F, discFill)).setAlwaysOnTop();
                 float eta = path.ticks / 20.0F;
-                Gizmos.billboardText(String.format("rest ~%.1fs", eta), end.add(0.0, 0.6, 0.0),
+                Gizmos.billboardText(Lang.tr("trajectorylens.drops.rest_eta", Lang.fixed(eta, 1)), end.add(0.0, 0.6, 0.0),
                     TextGizmo.Style.forColorAndCentered(0xFFFFFFFF).withScale(0.8F)).setAlwaysOnTop();
                 return 2;
             }
             case BURNED -> {
                 Gizmos.point(end, PathTools.argb(0xFF, 0xFF, 0x8C, 0x1A), 0.45F).setAlwaysOnTop();
-                Gizmos.billboardText("burns", end.add(0.0, 0.5, 0.0),
+                Gizmos.billboardText(Lang.tr("trajectorylens.drops.burns"), end.add(0.0, 0.5, 0.0),
                     TextGizmo.Style.forColorAndCentered(0xFFFFD9A0).withScale(0.7F)).setAlwaysOnTop();
                 return 2;
             }

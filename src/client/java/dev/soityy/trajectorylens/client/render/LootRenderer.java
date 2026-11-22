@@ -49,7 +49,7 @@ public final class LootRenderer {
             Vec3 p = new Vec3(warn.pos().x, warn.pos().y + 0.9, warn.pos().z);
             Gizmos.circle(p, 0.34F, GizmoStyle.strokeAndFill((0xEE << 24) | rgb, 2.2F, (0x33 << 24) | rgb))
                 .setAlwaysOnTop();
-            Gizmos.billboardText(String.format(Lang.tr("§6≤%ds 消失 §f%s"), warn.remainingTicks() / 20, warn.name()),
+            Gizmos.billboardText(Lang.tr("trajectorylens.loot.label_despawn", warn.remainingTicks() / 20, warn.name()),
                 p.add(0, 0.35, 0), TextGizmo.Style.forColorAndCentered(0xFFFFFFFF).withScale(0.7F)).setAlwaysOnTop();
         }
 
@@ -77,7 +77,7 @@ public final class LootRenderer {
             if (g.from != null) {
                 Gizmos.line(g.from, center, (alpha << 24) | 0x50FFB0, 1.6F).setAlwaysOnTop();
             }
-            Gizmos.billboardText(String.format(Lang.tr("§a吸走 §f%s §7%.1fs"), g.label, remain * glowLife / 1000.0F),
+            Gizmos.billboardText(Lang.tr("trajectorylens.loot.label_swallowed", g.label, Lang.fixed(remain * glowLife / 1000.0F, 1)),
                 center.add(0, 0.9, 0), TextGizmo.Style.forColorAndCentered(0xFFB0FFD0).withScale(0.7F)).setAlwaysOnTop();
         }
     }

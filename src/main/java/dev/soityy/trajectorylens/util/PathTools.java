@@ -34,6 +34,68 @@ public final class PathTools {
         return out;
     }
 
+    public static int[] smallestIndices(double[] values, int k) {
+        int m = Math.min(k, values.length);
+        if (m <= 0) {
+            return new int[0];
+        }
+        int[] heap = new int[m];
+        int size = 0;
+        for (int i = 0; i < values.length; i++) {
+            if (size < m) {
+                heap[size] = i;
+                siftUp(heap, size, values);
+                size++;
+            } else if (before(values, i, heap[0])) {
+                heap[0] = i;
+                siftDown(heap, 0, size, values);
+            }
+        }
+        for (int end = size - 1; end > 0; end--) {
+            int top = heap[0];
+            heap[0] = heap[end];
+            heap[end] = top;
+            siftDown(heap, 0, end, values);
+        }
+        return heap;
+    }
+
+    private static boolean before(double[] values, int a, int b) {
+        return values[a] < values[b] || (values[a] == values[b] && a < b);
+    }
+
+    private static void siftUp(int[] heap, int i, double[] values) {
+        int item = heap[i];
+        while (i > 0) {
+            int parent = (i - 1) >>> 1;
+            if (!before(values, heap[parent], item)) {
+                break;
+            }
+            heap[i] = heap[parent];
+            i = parent;
+        }
+        heap[i] = item;
+    }
+
+    private static void siftDown(int[] heap, int i, int size, double[] values) {
+        int item = heap[i];
+        while (true) {
+            int child = 2 * i + 1;
+            if (child >= size) {
+                break;
+            }
+            if (child + 1 < size && before(values, heap[child], heap[child + 1])) {
+                child++;
+            }
+            if (!before(values, item, heap[child])) {
+                break;
+            }
+            heap[i] = heap[child];
+            i = child;
+        }
+        heap[i] = item;
+    }
+
     public static int argb(int r, int g, int b, int a) {
         return (a & 0xFF) << 24 | (r & 0xFF) << 16 | (g & 0xFF) << 8 | (b & 0xFF);
     }

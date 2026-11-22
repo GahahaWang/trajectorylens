@@ -22,18 +22,18 @@ import net.minecraft.world.entity.projectile.throwableitemprojectile.ThrownEnder
  *   PrimedTnt : gravity 0.04, air drag 0.98, ground bounce (0.7, -0.5, 0.7), fuse
  */
 public enum ProjectileKind {
-    ARROW("箭", 0xFFE8E8E8, 0.05, 0.99, 0.6, 0.0, 0.0F, false),
-    TRIDENT("三叉戟", 0xFF39E0D2, 0.05, 0.99, 0.6, 0.0, 0.0F, false),
-    SNOWBALL("雪球", 0xFFFFFFFF, 0.03, 0.99, 0.8, 0.0, 0.0F, false),
-    EGG("鸡蛋", 0xFFF6E3B4, 0.03, 0.99, 0.8, 0.0, 0.0F, false),
-    ENDER_PEARL("末影珍珠", 0xFF2AA79B, 0.03, 0.99, 0.8, 0.0, 0.0F, false),
-    POTION("药水", 0xFFCB6BFF, 0.03, 0.99, 0.8, 0.0, 0.0F, false),
-    FIREBALL("火球", 0xFFFF7A1A, 0.0, 0.95, 0.95, 0.1, 1.0F, false),
-    SMALL_FIREBALL("小火球", 0xFFFFA94A, 0.0, 0.95, 0.95, 0.1, 0.0F, false),
-    TNT("TNT", 0xFFFF4A3A, 0.04, 0.98, 0.98, 0.0, 4.0F, true),
-    CREEPER("苦力怕", 0xFF5BD24A, 0.0, 1.0, 1.0, 0.0, 3.0F, false);
+    ARROW("trajectorylens.projectile.arrow", 0xFFE8E8E8, 0.05, 0.99, 0.6, 0.0, 0.0F, false),
+    TRIDENT("trajectorylens.projectile.trident", 0xFF39E0D2, 0.05, 0.99, 0.6, 0.0, 0.0F, false),
+    SNOWBALL("trajectorylens.projectile.snowball", 0xFFFFFFFF, 0.03, 0.99, 0.8, 0.0, 0.0F, false),
+    EGG("trajectorylens.projectile.egg", 0xFFF6E3B4, 0.03, 0.99, 0.8, 0.0, 0.0F, false),
+    ENDER_PEARL("trajectorylens.projectile.ender_pearl", 0xFF2AA79B, 0.03, 0.99, 0.8, 0.0, 0.0F, false),
+    POTION("trajectorylens.projectile.potion", 0xFFCB6BFF, 0.03, 0.99, 0.8, 0.0, 0.0F, false),
+    FIREBALL("trajectorylens.projectile.fireball", 0xFFFF7A1A, 0.0, 0.95, 0.95, 0.1, 1.0F, false),
+    SMALL_FIREBALL("trajectorylens.projectile.small_fireball", 0xFFFFA94A, 0.0, 0.95, 0.95, 0.1, 0.0F, false),
+    TNT("trajectorylens.projectile.tnt", 0xFFFF4A3A, 0.04, 0.98, 0.98, 0.0, 4.0F, true),
+    CREEPER("trajectorylens.projectile.creeper", 0xFF5BD24A, 0.0, 1.0, 1.0, 0.0, 3.0F, false);
 
-    /** Chinese source text, also the translation key. */
+    /** Translation key of the projectile name. */
     public final String key;
     public final int color;
     public final double gravity;

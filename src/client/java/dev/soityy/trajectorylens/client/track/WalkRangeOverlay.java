@@ -1,5 +1,6 @@
 package dev.soityy.trajectorylens.client.track;
 
+import dev.soityy.trajectorylens.client.Lang;
 import dev.soityy.trajectorylens.client.ui.KeySettings;
 import dev.soityy.trajectorylens.client.ui.SettingsIO;
 
@@ -55,6 +56,10 @@ public final class WalkRangeOverlay {
         public Vec3 origin = Vec3.ZERO;
         public int lastComputeTick = -100;
         public int color = OverlayState.PALETTE[0];
+        public long[] nearCells;
+        public WalkRangeEngine.Region nearRegion;
+        public double nearX;
+        public double nearZ;
     }
 
     public void register() {
@@ -112,7 +117,7 @@ public final class WalkRangeOverlay {
     public @org.jspecify.annotations.Nullable String addTypeFromId(String raw) {
         EntityType<?> type = resolveType(raw);
         if (type == null) {
-            return "unknown entity type: " + raw;
+            return Lang.tr("trajectorylens.error.unknown_entity_type", raw);
         }
         String id = canonicalTypeId(type);
         if (!this.watchTypes.containsKey(id)) {
@@ -175,7 +180,7 @@ public final class WalkRangeOverlay {
     /** colorSpec: RRGGBB / AARRGGBB / auto. Returns error text or null. */
     public @org.jspecify.annotations.Nullable String setColor(String id, String colorSpec) {
         if (id == null) {
-            return "null type";
+            return Lang.tr("trajectorylens.error.no_id");
         }
         if (colorSpec == null || colorSpec.trim().equalsIgnoreCase("auto")) {
             this.typeColors.remove(id);
@@ -183,7 +188,7 @@ public final class WalkRangeOverlay {
         } else {
             Integer argb = PathTools.parseColor(colorSpec);
             if (argb == null) {
-                return "bad color '" + colorSpec + "' — use RRGGBB or AARRGGBB, or 'auto'";
+                return Lang.tr("trajectorylens.error.bad_color", colorSpec);
             }
             this.typeColors.put(id, argb);
         }
@@ -197,24 +202,12 @@ public final class WalkRangeOverlay {
     }
 
     public String summary() {
-        StringBuilder sb = new StringBuilder("range=");
-        sb.append(this.enabled ? "on" : "off")
-            .append(", mobs=").append(this.watchTypes.isEmpty() ? "none" : String.join(", ", this.watchTypes.keySet()))
-            .append(", time=").append(this.horizonSeconds).append("s");
-        if (!this.typeColors.isEmpty() || !this.autoColors.isEmpty()) {
-            sb.append(", colors:");
-            java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>(this.typeColors.keySet());
-            ids.addAll(this.autoColors.keySet());
-            for (String id : ids) {
-                Integer c = this.typeColors.get(id);
-                boolean auto = c == null;
-                int argb = auto ? this.autoColors.get(id) : c;
-                sb.append(" ").append(id).append("=#")
-                    .append(String.format("%06X", argb & 0xFFFFFF))
-                    .append(auto ? "(auto)" : "");
-            }
-        }
-        return sb.toString();
+        String mobs = this.watchTypes.isEmpty()
+            ? Lang.tr("trajectorylens.common.none")
+            : String.join(", ", this.watchTypes.keySet());
+        String summary = Lang.tr("trajectorylens.range.summary", Lang.onOff(this.enabled), mobs, this.horizonSeconds);
+        String table = OverlayState.colorTable(this.typeColors, this.autoColors);
+        return table.isEmpty() ? summary : summary + " | " + Lang.tr("trajectorylens.common.colors", table);
     }
 
     public static @org.jspecify.annotations.Nullable String typeIdOf(Mob mob) {
@@ -287,11 +280,9 @@ public final class WalkRangeOverlay {
             this.toggle();
             var pl = mc.player;
             if (pl != null) {
-                pl.sendOverlayMessage(Component.literal(this.enabled
-                    ? (this.watchTypes.isEmpty()
-                        ? "walk ranges on — add types: /trajectorylens range add <type>"
-                        : "walk ranges on")
-                    : "walk ranges off"));
+                pl.sendOverlayMessage(Component.literal(this.enabled && this.watchTypes.isEmpty()
+                    ? Lang.tr("trajectorylens.range.on_hint")
+                    : Lang.tr("trajectorylens.range.toggled", Lang.onOff(this.enabled))));
             }
         }
         this.prevChord = chord;
@@ -343,6 +334,7 @@ public final class WalkRangeOverlay {
 
         // stagger: at most MAX_REGIONS regions, at most MAX_COMPUTE_PER_TICK recomputes
         int computed = 0;
+        WalkRangeEngine.BlockCache blocks = null;
         for (Mob mob : mobs) {
             int id = mob.getId();
             RegionEntry e = this.regions.get(id);
@@ -361,13 +353,16 @@ public final class WalkRangeOverlay {
                 || e.origin.distanceToSqr(pos) > MOVE_EPS * MOVE_EPS;
             if (due && computed < MAX_COMPUTE_PER_TICK) {
                 computed++;
+                if (blocks == null) {
+                    blocks = new WalkRangeEngine.BlockCache(level);
+                }
                 String typeId = typeIdOf(mob);
                 e.color = this.colorForType(typeId);
                 e.origin = pos;
                 e.lastComputeTick = this.tick;
                 double speed = mob.getAttributeValue(Attributes.MOVEMENT_SPEED);
                 int ceilH = Math.max(1, (int) Math.ceil(mob.getBbHeight()));
-                e.region = WalkRangeEngine.compute(level, speed, ceilH,
+                e.region = WalkRangeEngine.compute(blocks, speed, ceilH,
                     pos.x, pos.y, pos.z, this.horizonSeconds * 20);
             }
         }

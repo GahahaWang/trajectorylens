@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Random;
 
 import org.junit.jupiter.api.Test;
 
@@ -69,5 +71,34 @@ class PathToolsTest {
         int mid = PathTools.lerpArgb(a, b, 0.5F);
         assertEquals(0x80, mid >>> 24);
         assertEquals(0x80, mid >> 16 & 0xFF);
+    }
+
+    @Test
+    void smallestIndicesEmptyAndZero() {
+        assertEquals(0, PathTools.smallestIndices(new double[0], 5).length);
+        assertEquals(0, PathTools.smallestIndices(new double[]{1, 2}, 0).length);
+    }
+
+    @Test
+    void smallestIndicesMatchesStableSort() {
+        Random rnd = new Random(42);
+        for (int round = 0; round < 200; round++) {
+            int n = rnd.nextInt(300);
+            int k = rnd.nextInt(120);
+            double[] values = new double[n];
+            for (int i = 0; i < n; i++) {
+                values[i] = rnd.nextInt(40);
+            }
+            List<Integer> expected = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                expected.add(i);
+            }
+            expected.sort(Comparator.comparingDouble(i -> values[i]));
+            int[] actual = PathTools.smallestIndices(values, k);
+            assertEquals(Math.min(k, n), actual.length);
+            for (int i = 0; i < actual.length; i++) {
+                assertEquals(expected.get(i).intValue(), actual[i]);
+            }
+        }
     }
 }

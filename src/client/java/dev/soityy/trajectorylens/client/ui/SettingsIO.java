@@ -29,6 +29,9 @@ import net.minecraft.client.Minecraft;
  */
 public final class SettingsIO {
 
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static String lastSaved;
+
     public boolean dropsOn;
     public boolean rangesOn;
     public boolean projectilesOn = true;
@@ -44,6 +47,7 @@ public final class SettingsIO {
     public boolean fallingOn = true;
     public int chainDepth = 3;
     public int chainHorizonSeconds = 6;
+    public int projectileTextPercent = 100;
     public int lostMarkerSeconds = 6;
     public int hopperGlowSeconds = 5;
     public final List<CounterEntry> counters = new ArrayList<>();
@@ -110,6 +114,7 @@ public final class SettingsIO {
             s.fallingOn = bool(o, "fallingOn", true);
             s.chainDepth = intOf(o, "chainDepth", 3);
             s.chainHorizonSeconds = intOf(o, "chainHorizonSeconds", 6);
+            s.projectileTextPercent = intOf(o, "projectileTextPercent", 100);
             s.lostMarkerSeconds = intOf(o, "lostMarkerSeconds", 6);
             s.hopperGlowSeconds = intOf(o, "hopperGlowSeconds", 5);
             listCounters(o, "counters", s.counters);
@@ -165,6 +170,7 @@ public final class SettingsIO {
             o.addProperty("fallingOn", this.fallingOn);
             o.addProperty("chainDepth", this.chainDepth);
             o.addProperty("chainHorizonSeconds", this.chainHorizonSeconds);
+            o.addProperty("projectileTextPercent", this.projectileTextPercent);
             o.addProperty("lostMarkerSeconds", this.lostMarkerSeconds);
             o.addProperty("hopperGlowSeconds", this.hopperGlowSeconds);
             o.add("counters", countersArr(this.counters));
@@ -175,7 +181,13 @@ public final class SettingsIO {
             o.add("rangeWatch", arr(this.rangeWatch));
             o.add("dropColors", obj(this.dropColors));
             o.add("rangeColors", obj(this.rangeColors));
-            Files.write(file().toPath(), new GsonBuilder().setPrettyPrinting().create().toJson(o).getBytes(StandardCharsets.UTF_8));
+            String json = GSON.toJson(o);
+            File f = file();
+            if (json.equals(lastSaved) && f.isFile()) {
+                return;
+            }
+            Files.write(f.toPath(), json.getBytes(StandardCharsets.UTF_8));
+            lastSaved = json;
         } catch (Exception ignored) {
             // best effort persistence
         }
@@ -316,6 +328,7 @@ public final class SettingsIO {
         s.fallingOn = proj.fallingEnabled();
         s.chainDepth = proj.chainDepth();
         s.chainHorizonSeconds = proj.chainHorizonSeconds();
+        s.projectileTextPercent = proj.textPercent();
         s.flowCountersOn = flow.countersEnabled();
         for (var c : flow.counterSnapshot()) {
             CounterEntry en = new CounterEntry();

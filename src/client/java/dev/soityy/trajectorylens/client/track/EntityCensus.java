@@ -96,12 +96,13 @@ public final class EntityCensus {
 
     /** One-line summary for the panel. */
     public String compact() {
-        return String.format(Lang.tr("附近实体 %d: 敌对%d 动物%d 其他%d | 物品%d 经验%d 投掷物%d"),
+        return Lang.tr("trajectorylens.census.summary",
             this.total, this.hostiles, this.animals, this.mobs, this.items, this.xpOrbs, this.projectiles);
     }
 
     public String topLine() {
-        return this.topTypes.isEmpty() ? Lang.tr("最多: (无)") : Lang.tr("最多: ") + String.join(", ", this.topTypes);
+        return Lang.tr("trajectorylens.census.top",
+            this.topTypes.isEmpty() ? Lang.tr("trajectorylens.common.none") : String.join(", ", this.topTypes));
     }
 
     /** Multi-line report for chat. */
@@ -110,10 +111,10 @@ public final class EntityCensus {
         out.add("[TrajectoryLens] " + this.compact());
         out.add("[TrajectoryLens] " + this.topLine());
         if (this.items > 200) {
-            out.add(Lang.tr("[TrajectoryLens] §e提示: 附近物品超过 200 个,大量掉落物会拖慢服务器/客户端渲染。"));
+            out.add(Lang.tr("trajectorylens.census.hint_many_items"));
         }
         if (this.hostiles > 60) {
-            out.add(Lang.tr("[TrajectoryLens] §e提示: 敌对生物 >60,接近常见怪物上限(70),刷怪塔可能被压制。"));
+            out.add(Lang.tr("trajectorylens.census.hint_many_hostiles"));
         }
         return out;
     }

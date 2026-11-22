@@ -4,14 +4,13 @@ import dev.soityy.trajectorylens.client.ui.Report;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import dev.soityy.trajectorylens.client.Lang;
 
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
@@ -22,6 +21,7 @@ import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.vehicle.minecart.MinecartHopper;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.HopperBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -58,18 +58,18 @@ public final class LootTracker {
     }
 
     public enum Reason {
-        LAVA("岩浆烧毁", 0xFFFF6A2A),
-        FIRE("烧毁", 0xFFFF9A2A),
-        CACTUS("仙人掌销毁", 0xFF3FBF4F),
-        VOID("掉入虚空", 0xFFB060FF),
-        DESPAWN("超时消失", 0xFFB0B0B0),
-        EXPLODED("被爆炸摧毁", 0xFFFF4040),
-        MERGED("合并堆叠", 0xFF40D0FF),
-        PICKED("被玩家拾取", 0xFF80FF80),
-        MACHINE("被漏斗吸走", 0xFF40FFD0),
-        UNKNOWN("原因未知", 0xFFFFFFFF);
+        LAVA("trajectorylens.loot.reason_lava", 0xFFFF6A2A),
+        FIRE("trajectorylens.loot.reason_fire", 0xFFFF9A2A),
+        CACTUS("trajectorylens.loot.reason_cactus", 0xFF3FBF4F),
+        VOID("trajectorylens.loot.reason_void", 0xFFB060FF),
+        DESPAWN("trajectorylens.loot.reason_despawn", 0xFFB0B0B0),
+        EXPLODED("trajectorylens.loot.reason_exploded", 0xFFFF4040),
+        MERGED("trajectorylens.loot.reason_merged", 0xFF40D0FF),
+        PICKED("trajectorylens.loot.reason_picked", 0xFF80FF80),
+        MACHINE("trajectorylens.loot.reason_machine", 0xFF40FFD0),
+        UNKNOWN("trajectorylens.loot.reason_unknown", 0xFFFFFFFF);
 
-        /** Chinese source text, also the translation key in the language files. */
+        /** Translation key in the language files. */
         public final String key;
         public final int color;
 
@@ -242,8 +242,8 @@ public final class LootTracker {
     }
 
     public String summary() {
-        return String.format(Lang.tr("失踪溯源=%s 共%d: 岩浆%d 火焰%d 仙人掌%d 虚空%d 超时%d 爆炸%d 合并%d 拾取%d 机器%d 未知%d"),
-            this.on ? "on" : "off", total(),
+        return Lang.tr("trajectorylens.loot.summary",
+            Lang.onOff(this.on), total(),
             count(Reason.LAVA), count(Reason.FIRE), count(Reason.CACTUS), count(Reason.VOID),
             count(Reason.DESPAWN), count(Reason.EXPLODED), count(Reason.MERGED),
             count(Reason.PICKED), count(Reason.MACHINE), count(Reason.UNKNOWN));
@@ -254,12 +254,13 @@ public final class LootTracker {
         lines.add("[TrajectoryLens] " + summary());
         List<Event> recent = recentEvents();
         if (recent.isEmpty()) {
-            lines.add(Lang.tr("[TrajectoryLens] 最近 ") + this.markerSeconds + Lang.tr(" 秒没有物品消失事件。"));
+            lines.add(Lang.tr("trajectorylens.loot.nothing_lost", this.markerSeconds));
         } else {
             for (Event e : recent) {
                 long ago = (System.currentTimeMillis() - e.millis) / 1000;
-                lines.add(String.format(Lang.tr("[TrajectoryLens] %s %s×%d @ (%.0f, %.0f, %.0f) %d 秒前"),
-                    e.reason.label(), e.itemName, e.count, e.pos.x, e.pos.y, e.pos.z, ago));
+                lines.add(Lang.tr("trajectorylens.loot.event_line",
+                    e.reason.label(), e.itemName, e.count,
+                    Lang.fixed(e.pos.x, 0), Lang.fixed(e.pos.y, 0), Lang.fixed(e.pos.z, 0), ago));
             }
         }
         return lines;
@@ -271,6 +272,10 @@ public final class LootTracker {
         var player = mc.player;
         if (level == null || player == null) {
             this.watched.clear();
+            return;
+        }
+        if (!this.on) {
+            this.warnings.clear();
             return;
         }
         // remember recent explosion centres (TNT / swelling creepers) for attribution
@@ -286,14 +291,12 @@ public final class LootTracker {
                 this.blastTicks.add((long) this.tick);
             }
         }
-        if (!this.on) {
-            this.warnings.clear();
-            return;
-        }
 
         List<ItemEntity> items = level.getEntitiesOfClass(ItemEntity.class, player.getBoundingBox().inflate(WATCH_RADIUS));
         this.warnings.clear();
-        Set<Integer> present = new HashSet<>();
+        IntOpenHashSet present = new IntOpenHashSet();
+        Hoppers.Probe probe = null;
+        List<MinecartHopper> carts = List.of();
         for (ItemEntity e : items) {
             if (!e.isAlive() || e.getItem().isEmpty()) {
                 continue;
@@ -313,7 +316,11 @@ public final class LootTracker {
             w.count = Math.max(w.count, e.getItem().getCount());
             // remember hoppers the item is sitting in/near: staggered probe keeps this cheap
             if (((this.tick + id) & 7) == 0) {
-                Hoppers.Hit hit = Hoppers.find(level, w.pos, 1, 1, 0, 0.35, false);
+                if (probe == null) {
+                    probe = new Hoppers.Probe(level, 1, 1, 0);
+                    carts = level.getEntitiesOfClass(MinecartHopper.class, player.getBoundingBox().inflate(WATCH_RADIUS + 4.0));
+                }
+                Hoppers.Hit hit = probe.find(w.pos, 0.35, false, carts);
                 if (hit != null) {
                     w.hopperSeen = hit.pos();
                     w.hopperCartSeen = hit.cart();
@@ -330,19 +337,19 @@ public final class LootTracker {
                         var pl = Minecraft.getInstance().player;
                         if (pl != null) {
                             pl.sendSystemMessage(net.minecraft.network.chat.Component.literal(
-                                "[TrajectoryLens] ⚠ " + w.name + Lang.tr(" 即将消失(还剩约 ") + (remaining / 20) + Lang.tr(" 秒),快去捡!")));
+                                Lang.tr("trajectorylens.loot.despawn_chat", w.name, remaining / 20)));
                         }
                     }
                 }
             }
-            BlockPos at = BlockPos.containing(w.pos);
-            if (level.getFluidState(at).is(FluidTags.LAVA)) {
+            BlockState state = level.getBlockState(BlockPos.containing(w.pos));
+            if (state.getFluidState().is(FluidTags.LAVA)) {
                 w.touchedLava = true;
             }
-            if (level.getBlockState(at).is(Blocks.FIRE) || level.getBlockState(at).is(Blocks.SOUL_FIRE)) {
+            if (state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE)) {
                 w.touchedFire = true;
             }
-            if (level.getBlockState(at).is(Blocks.CACTUS)) {
+            if (state.is(Blocks.CACTUS)) {
                 w.touchedCactus = true;
             }
         }
@@ -350,7 +357,7 @@ public final class LootTracker {
         Iterator<Map.Entry<Integer, Watched>> it = this.watched.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<Integer, Watched> en = it.next();
-            if (present.contains(en.getKey())) {
+            if (present.contains(en.getKey().intValue())) {
                 continue;
             }
             Watched w = en.getValue();

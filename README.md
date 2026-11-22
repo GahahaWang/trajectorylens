@@ -137,8 +137,6 @@ acceleration; **TNT** 0.04 / 0.98 with a `(0.7, -0.5, 0.7)` ground bounce and an
   the **block** or **entity name** it will hit (so an arrow tells you who it is going to hit);
 - **Held-item aim preview**: full trajectory while drawing a bow, holding a charged crossbow, charging
   a trident or holding a throwable;
-- **Ender pearls**: the teleport destination (vanilla teleports to the position one tick before impact),
-  the 5 points of self-damage and a danger verdict for the landing spot;
 - **Blast warning**: primed TNT shows its fuse countdown, predicted landing spot and two blast rings
   (inner = guaranteed-break radius for power 4, outer = 2x radius damage/knock-back zone); creepers are
   predicted from their synced swell state; TNT minecarts are supported too;
@@ -260,11 +258,11 @@ trajectorylens/
 
 ## Languages
 
-The in-game interface follows your game language: `assets/trajectorylens/lang/en_us.json` provides
-English, `zh_cn.json` the Chinese originals, and any other language falls back to English. The panel,
-the search pickers and every chat message are translated today; the labels drawn on top of the world
-follow in an upcoming update. Translation keys are the Chinese source strings (`gettext` style), so a
-missing entry can never render as a raw key — it simply shows the Chinese text. Pull requests adding
+The in-game interface follows your game language. Every string is a standard translation key
+(`trajectorylens.<area>.<name>`, e.g. `trajectorylens.panel.title`) in
+`assets/trajectorylens/lang/<locale>.json`: `en_us.json` (English), `zh_cn.json` (Simplified Chinese)
+and `zh_tw.json` (Traditional Chinese). `en_us.json` holds every key, so any other language, or an entry
+missing from a translation, falls back to English. Pull requests adding
 `assets/trajectorylens/lang/<locale>.json` are very welcome.
 
 ## Known limitations

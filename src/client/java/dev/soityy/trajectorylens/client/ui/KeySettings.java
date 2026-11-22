@@ -37,7 +37,7 @@ public final class KeySettings {
     /** "O + P" style label. */
     public static String display(int[] chord) {
         if (chord == null || chord.length == 0) {
-            return Lang.tr("未绑定");
+            return Lang.tr("trajectorylens.keys.unbound");
         }
         StringBuilder sb = new StringBuilder();
         for (int k : chord) {
@@ -69,72 +69,6 @@ public final class KeySettings {
     }
 
     public static String name(int code) {
-        if (code >= 'A' && code <= 'Z') {
-            return String.valueOf((char) code);
-        }
-        if (code >= '0' && code <= '9') {
-            return String.valueOf((char) code);
-        }
-        if (code == InputConstants.KEY_ESCAPE) {
-            return "Esc";
-        }
-        if (code == InputConstants.KEY_SPACE) {
-            return "Space";
-        }
-        if (code == InputConstants.KEY_LSHIFT || code == InputConstants.KEY_RSHIFT) {
-            return "Shift";
-        }
-        if (code == InputConstants.KEY_LCONTROL || code == InputConstants.KEY_RCONTROL) {
-            return "Ctrl";
-        }
-        if (code == InputConstants.KEY_LALT || code == InputConstants.KEY_RALT) {
-            return "Alt";
-        }
-        if (code == InputConstants.KEY_TAB) {
-            return "Tab";
-        }
-        if (code == InputConstants.KEY_RETURN) {
-            return "Enter";
-        }
-        if (code == InputConstants.KEY_BACKSPACE) {
-            return "Backspace";
-        }
-        if (code == InputConstants.KEY_MINUS) {
-            return "-";
-        }
-        if (code == InputConstants.KEY_EQUALS) {
-            return "=";
-        }
-        if (code == InputConstants.KEY_LBRACKET) {
-            return "[";
-        }
-        if (code == InputConstants.KEY_RBRACKET) {
-            return "]";
-        }
-        if (code == InputConstants.KEY_SEMICOLON) {
-            return ";";
-        }
-        if (code == InputConstants.KEY_APOSTROPHE) {
-            return "'";
-        }
-        if (code == InputConstants.KEY_GRAVE) {
-            return "`";
-        }
-        if (code == InputConstants.KEY_COMMA) {
-            return ",";
-        }
-        if (code == InputConstants.KEY_PERIOD) {
-            return ".";
-        }
-        if (code == InputConstants.KEY_SLASH) {
-            return "/";
-        }
-        if (code == InputConstants.KEY_BACKSLASH) {
-            return "\\";
-        }
-        if (code >= InputConstants.KEY_F1 && code <= InputConstants.KEY_F25) {
-            return "F" + (code - InputConstants.KEY_F1 + 1);
-        }
-        return Lang.tr("键") + code;
+        return InputConstants.Type.KEYSYM.getOrCreate(code).getDisplayName().getString();
     }
 }

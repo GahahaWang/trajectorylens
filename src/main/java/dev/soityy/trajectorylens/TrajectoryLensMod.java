@@ -221,7 +221,7 @@ public class TrajectoryLensMod implements ModInitializer {
     private static int setTargetServer(CommandSourceStack src, String raw) {
         ServerPlayer player = src.getPlayer();
         if (player == null) {
-            src.sendFailure(Component.literal("[TrajectoryLens] this command needs a player client"));
+            src.sendFailure(message("trajectorylens.error.needs_client", "this command needs a player client"));
             return 0;
         }
         String id = raw.trim();
@@ -239,13 +239,13 @@ public class TrajectoryLensMod implements ModInitializer {
         try {
             parsed = Identifier.fromNamespaceAndPath(ns, path);
         } catch (Exception ex) {
-            src.sendFailure(Component.literal("[TrajectoryLens] invalid item id: " + id));
+            src.sendFailure(message("trajectorylens.error.invalid_item", "invalid item id: %s", id));
             return 0;
         }
         Registry<net.minecraft.world.item.Item> items =
                         src.getServer().registryAccess().lookup(Registries.ITEM).orElseThrow();
         if (!items.containsKey(parsed)) {
-            src.sendFailure(Component.literal("[TrajectoryLens] unknown item: " + id));
+            src.sendFailure(message("trajectorylens.error.unknown_item", "unknown item: %s", id));
             return 0;
         }
         ServerPlayNetworking.send(player, new TargetPayload("target:" + parsed));
@@ -255,13 +255,12 @@ public class TrajectoryLensMod implements ModInitializer {
     private static int setColorServer(CommandSourceStack src, String itemRaw, String colorRaw) {
         ServerPlayer player = src.getPlayer();
         if (player == null) {
-            src.sendFailure(Component.literal("[TrajectoryLens] this command needs a player client"));
+            src.sendFailure(message("trajectorylens.error.needs_client", "this command needs a player client"));
             return 0;
         }
         String spec = colorRaw.trim();
         if (!spec.equalsIgnoreCase("auto") && PathTools.parseColor(spec) == null) {
-            src.sendFailure(Component.literal("[TrajectoryLens] bad color '" + spec
-                + "' — use RRGGBB or AARRGGBB, or 'auto'"));
+            src.sendFailure(badColor(spec));
             return 0;
         }
         String id = itemRaw.trim();
@@ -279,13 +278,13 @@ public class TrajectoryLensMod implements ModInitializer {
         try {
             parsed = Identifier.fromNamespaceAndPath(ns, path);
         } catch (Exception ex) {
-            src.sendFailure(Component.literal("[TrajectoryLens] invalid item id: " + itemRaw));
+            src.sendFailure(message("trajectorylens.error.invalid_item", "invalid item id: %s", itemRaw));
             return 0;
         }
         Registry<net.minecraft.world.item.Item> items =
             src.getServer().registryAccess().lookup(Registries.ITEM).orElseThrow();
         if (!items.containsKey(parsed)) {
-            src.sendFailure(Component.literal("[TrajectoryLens] unknown item: " + itemRaw));
+            src.sendFailure(message("trajectorylens.error.unknown_item", "unknown item: %s", itemRaw));
             return 0;
         }
         ServerPlayNetworking.send(player, new TargetPayload("color:" + parsed + ":" + spec));
@@ -295,18 +294,18 @@ public class TrajectoryLensMod implements ModInitializer {
     private static int rangeTypeOp(CommandSourceStack src, String raw, String opPrefix) {
         ServerPlayer player = src.getPlayer();
         if (player == null) {
-            src.sendFailure(Component.literal("[TrajectoryLens] this command needs a player client"));
+            src.sendFailure(message("trajectorylens.error.needs_client", "this command needs a player client"));
             return 0;
         }
         Identifier parsed = resolveIdentifier(raw);
         if (parsed == null) {
-            src.sendFailure(Component.literal("[TrajectoryLens] invalid id: " + raw));
+            src.sendFailure(message("trajectorylens.error.invalid_id", "invalid id: %s", raw));
             return 0;
         }
         Registry<EntityType<?>> types =
             src.getServer().registryAccess().lookup(Registries.ENTITY_TYPE).orElseThrow();
         if (!types.containsKey(parsed)) {
-            src.sendFailure(Component.literal("[TrajectoryLens] unknown entity type: " + raw));
+            src.sendFailure(message("trajectorylens.error.unknown_entity_type", "unknown entity type: %s", raw));
             return 0;
         }
         ServerPlayNetworking.send(player, new TargetPayload(opPrefix + parsed));
@@ -316,24 +315,23 @@ public class TrajectoryLensMod implements ModInitializer {
     private static int rangeColorOp(CommandSourceStack src, String typeRaw, String colorRaw) {
         ServerPlayer player = src.getPlayer();
         if (player == null) {
-            src.sendFailure(Component.literal("[TrajectoryLens] this command needs a player client"));
+            src.sendFailure(message("trajectorylens.error.needs_client", "this command needs a player client"));
             return 0;
         }
         String spec = colorRaw.trim();
         if (!spec.equalsIgnoreCase("auto") && PathTools.parseColor(spec) == null) {
-            src.sendFailure(Component.literal("[TrajectoryLens] bad color '" + spec
-                + "' — use RRGGBB or AARRGGBB, or 'auto'"));
+            src.sendFailure(badColor(spec));
             return 0;
         }
         Identifier parsed = resolveIdentifier(typeRaw);
         if (parsed == null) {
-            src.sendFailure(Component.literal("[TrajectoryLens] invalid id: " + typeRaw));
+            src.sendFailure(message("trajectorylens.error.invalid_id", "invalid id: %s", typeRaw));
             return 0;
         }
         Registry<EntityType<?>> types =
             src.getServer().registryAccess().lookup(Registries.ENTITY_TYPE).orElseThrow();
         if (!types.containsKey(parsed)) {
-            src.sendFailure(Component.literal("[TrajectoryLens] unknown entity type: " + typeRaw));
+            src.sendFailure(message("trajectorylens.error.unknown_entity_type", "unknown entity type: %s", typeRaw));
             return 0;
         }
         ServerPlayNetworking.send(player, new TargetPayload("rangecolor:" + parsed + ":" + spec));
@@ -383,7 +381,7 @@ public class TrajectoryLensMod implements ModInitializer {
     private static int sendToPlayer(CommandSourceStack src, TargetPayload payload, String feedback) {
         ServerPlayer player = src.getPlayer();
         if (player == null) {
-            src.sendFailure(Component.literal("[TrajectoryLens] this command needs a player client"));
+            src.sendFailure(message("trajectorylens.error.needs_client", "this command needs a player client"));
             return 0;
         }
         ServerPlayNetworking.send(player, payload);
@@ -395,20 +393,28 @@ public class TrajectoryLensMod implements ModInitializer {
         var level = src.getLevel();
         ItemPhysicsSimulator sim = new ItemPhysicsSimulator(level);
         TrajectoryPath path = sim.simulate(x, y, z, vx, vy, vz, new ItemStack(Items.STICK));
-        StringBuilder sb = new StringBuilder("prediction: ");
+        Component msg;
         if (path.points.isEmpty()) {
-            sb.append("no motion");
+            msg = Component.translatableWithFallback("trajectorylens.server.prediction_none", "prediction: no motion");
         } else {
             var end = path.endPoint();
-            sb.append("ticks=").append(path.ticks)
-                .append(", end=").append(String.format("%.2f", end.x))
-                .append(' ').append(String.format("%.2f", end.y))
-                .append(' ').append(String.format("%.2f", end.z))
-                .append(" (").append(new BlockPos((int) Math.floor(end.x), (int) Math.floor(end.y), (int) Math.floor(end.z)))
-                .append("), reason=").append(path.endReason);
+            msg = Component.translatableWithFallback("trajectorylens.server.prediction",
+                "prediction: ticks=%s, end=%s %s %s (%s), reason=%s",
+                String.valueOf(path.ticks),
+                String.format("%.2f", end.x), String.format("%.2f", end.y), String.format("%.2f", end.z),
+                new BlockPos((int) Math.floor(end.x), (int) Math.floor(end.y), (int) Math.floor(end.z)).toString(),
+                path.endReason.name());
         }
-        src.sendSuccess(() -> Component.literal(sb.toString()), true);
-        LOGGER.info("[TrajectoryLens] " + sb);
+        src.sendSuccess(() -> msg, true);
+        LOGGER.info("[TrajectoryLens] " + msg.getString());
         return 1;
+    }
+
+    private static Component message(String key, String fallback, Object... args) {
+        return Component.literal("[TrajectoryLens] ").append(Component.translatableWithFallback(key, fallback, args));
+    }
+
+    private static Component badColor(String spec) {
+        return message("trajectorylens.error.bad_color", "bad colour '%s' — use RRGGBB or AARRGGBB, or 'auto'", spec);
     }
 }

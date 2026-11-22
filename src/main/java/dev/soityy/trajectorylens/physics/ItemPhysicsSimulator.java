@@ -25,9 +25,11 @@ public final class ItemPhysicsSimulator {
         this.shadow.reset(x, y, z, vx, vy, vz, stack);
         Vec3 start = this.shadow.position();
         path.points.add(start);
+        path.vels.add(this.shadow.getDeltaMovement());
         path.ticks = 0;
         while (this.shadow.advanceTick()) {
             path.points.add(this.shadow.position());
+            path.vels.add(this.shadow.getDeltaMovement());
             path.ticks = this.shadow.simTicks();
         }
         path.endReason = classify();

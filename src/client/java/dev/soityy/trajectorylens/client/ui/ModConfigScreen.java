@@ -38,11 +38,15 @@ import net.minecraft.world.item.Item;
 public class ModConfigScreen extends Screen {
 
     /**
-     * Tab labels as translation keys (Chinese source text). They are translated when the screen
+     * Tab labels as translation keys. They are translated when the screen
      * is built, never in a static initialiser: a static field would freeze whichever language was
      * loaded first and keep it for the rest of the session.
      */
-    private static final String[] PAGES = {"总览", "掉落物", "投掷物", "爆炸推演", "生物", "物流", "按键", "工具"};
+    private static final String[] PAGES = {
+        "trajectorylens.panel.tab_overview", "trajectorylens.panel.tab_drops", "trajectorylens.panel.tab_projectiles",
+        "trajectorylens.panel.tab_blasts", "trajectorylens.panel.tab_mobs", "trajectorylens.panel.tab_logistics",
+        "trajectorylens.panel.tab_keys", "trajectorylens.panel.tab_tools"
+    };
 
     private final Screen lastScreen;
     private final OverlayState drops;
@@ -69,7 +73,7 @@ public class ModConfigScreen extends Screen {
     public ModConfigScreen(Screen lastScreen, OverlayState drops, WalkRangeOverlay ranges,
                            ProjectileOverlay projectiles, FlowTracker flow, EntityCensus census, ThreatOverlay threats,
                            LootTracker loot, int page) {
-        super(Component.literal(Lang.tr("TrajectoryLens 设置")));
+        super(Component.literal(Lang.tr("trajectorylens.panel.title")));
         this.lastScreen = lastScreen;
         this.drops = drops;
         this.ranges = ranges;
@@ -112,7 +116,7 @@ public class ModConfigScreen extends Screen {
         buildPage(helper, btnWidth);
 
         this.layout.addToContents(grid);
-        this.layout.addToFooter(Button.builder(Component.literal(Lang.tr("完成")), b -> this.onClose()).width(150).build());
+        this.layout.addToFooter(Button.builder(Component.literal(Lang.tr("trajectorylens.panel.done")), b -> this.onClose()).width(150).build());
         this.layout.visitWidgets(w -> this.addRenderableWidget(w));
         this.repositionElements();
     }
@@ -140,27 +144,27 @@ public class ModConfigScreen extends Screen {
     /** Everything a player flips most often, plus a live "what is on right now" readout. */
     private void buildOverviewPage(GridLayout.RowHelper helper, int w) {
         addToggle(helper, w,
-            () -> Lang.tr("掉落物轨迹: ") + (this.drops.visible() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("预测并绘制附近掉落物的运动轨迹。也可用快捷键 G(原版绑定,可在 工具页 改)。"),
+            () -> toggleText("trajectorylens.panel.drops", this.drops.visible()),
+            Lang.tr("trajectorylens.panel.drops_tooltip_long"),
             () -> {
                 this.drops.toggle();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("投掷物轨迹: ") + (this.projectiles.projectilesEnabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("预测箭/三叉戟/雪球/鸡蛋/末影珍珠/药水/火球的飞行路线与命中目标。"),
+            () -> toggleText("trajectorylens.panel.projectiles", this.projectiles.projectilesEnabled()),
+            Lang.tr("trajectorylens.panel.projectiles_tooltip"),
             () -> {
                 this.projectiles.toggleProjectiles();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("行走范围盘: ") + (this.ranges.isEnabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("显示被观察实体类型(见 生物 页)的极限可达范围。开关快捷键见 按键 页。"),
+            () -> toggleText("trajectorylens.panel.range", this.ranges.isEnabled()),
+            Lang.tr("trajectorylens.panel.range_tooltip_long"),
             () -> {
                 this.ranges.toggle();
                 act();
             });
-        helper.addChild(Button.builder(Component.literal(Lang.tr("§a全部开启")), b -> {
+        helper.addChild(Button.builder(Component.literal(Lang.tr("trajectorylens.panel.enable_all")), b -> {
             this.drops.setEnabledState(true);
             this.projectiles.setProjectiles(true);
             this.projectiles.setTnt(true);
@@ -175,7 +179,7 @@ public class ModConfigScreen extends Screen {
             this.flow.setJam(true);
             act();
         }).width(w).build());
-        helper.addChild(Button.builder(Component.literal(Lang.tr("§7全部关闭 (只留面板)")), b -> {
+        helper.addChild(Button.builder(Component.literal(Lang.tr("trajectorylens.panel.disable_all")), b -> {
             this.drops.setEnabledState(false);
             this.projectiles.setProjectiles(false);
             this.projectiles.setTnt(false);
@@ -190,10 +194,10 @@ public class ModConfigScreen extends Screen {
             this.flow.setJam(false);
             act();
         }).width(w).build());
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7在追: 投掷物 ") + this.projectiles.entries().size()
-            + Lang.tr(" · 计数器 ") + this.flow.counters().size() + Lang.tr(" · 堵塞 ") + this.flow.jams().size()), this.font));
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7快捷键: 轨迹 G · 范围盘 ")
-            + KeySettings.display(KeySettings.rangeChord) + Lang.tr(" · 面板 ") + KeySettings.display(KeySettings.panelChord)), this.font));
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.tracking",
+            this.projectiles.entries().size(), this.flow.counters().size(), this.flow.jams().size())), this.font));
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.hotkeys",
+            KeySettings.display(KeySettings.rangeChord), KeySettings.display(KeySettings.panelChord))), this.font));
     }
 
     // ------------------------------------------------------------- 掉落物
@@ -201,56 +205,56 @@ public class ModConfigScreen extends Screen {
     /** Drop trajectories, the item watch list and everything about losing items. */
     private void buildDropsPage(GridLayout.RowHelper helper, int w) {
         addToggle(helper, w,
-            () -> Lang.tr("掉落物轨迹: ") + (this.drops.visible() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("预测并绘制附近掉落物的运动轨迹(快捷键 G)。"),
+            () -> toggleText("trajectorylens.panel.drops", this.drops.visible()),
+            Lang.tr("trajectorylens.panel.drops_tooltip"),
             () -> {
                 this.drops.toggle();
                 act();
             });
-        helper.addChild(Button.builder(Component.literal(Lang.tr("＋ 搜索添加物品…")), b ->
+        helper.addChild(Button.builder(Component.literal(Lang.tr("trajectorylens.panel.search_item")), b ->
             this.minecraft.gui.setScreen(new SearchPickerScreen(this.lastScreen, this.drops, this.ranges, this.projectiles, this.flow,
                 this.census, this.threats, this.loot, true, this.page))
         ).width(w).build());
-        helper.addChild(Button.builder(Component.literal(Lang.tr("清空观察 (恢复显示全部物品)")), b -> {
+        helper.addChild(Button.builder(Component.literal(Lang.tr("trajectorylens.panel.clear_item_watch")), b -> {
             this.drops.clearTargets();
             act();
         }).width(w).build());
         addWatchedRows(helper, w, watchItemIds(), true);
         addToggle(helper, w,
-            () -> Lang.tr("失踪溯源: ") + (this.loot.enabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("记录附近掉落物为什么消失(玩家拾取/漏斗吸走/岩浆/爆炸/超时/虚空…),并给出幽灵标记。"),
+            () -> toggleText("trajectorylens.panel.losttrack", this.loot.enabled()),
+            Lang.tr("trajectorylens.panel.losttrack_tooltip"),
             () -> {
                 this.loot.toggle();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("失踪标记显示: ") + this.loot.markerSeconds() + Lang.tr(" 秒"),
-            Lang.tr("消失事件在原地保留多久(点击循环 3/5/6/8/10/15/30/60 秒)。"),
+            () -> Lang.tr("trajectorylens.panel.lost_time", this.loot.markerSeconds()),
+            Lang.tr("trajectorylens.panel.lost_time_tooltip"),
             () -> {
                 this.loot.cycleMarkerSeconds();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("漏斗高亮时长: ") + this.loot.glowSeconds() + Lang.tr(" 秒"),
-            Lang.tr("漏斗吸走物品后高亮多久,期间再次吸入会重置计时。"),
+            () -> Lang.tr("trajectorylens.panel.glow_time", this.loot.glowSeconds()),
+            Lang.tr("trajectorylens.panel.glow_time_tooltip"),
             () -> {
                 this.loot.cycleGlowSeconds();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("物品寿命提醒: ") + (this.loot.despawnWarnEnabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("掉落物在原地待了 4 分半后开始倒计时提醒(原版 5 分钟消失),免得东西白丢。"),
+            () -> toggleText("trajectorylens.panel.despawn", this.loot.despawnWarnEnabled()),
+            Lang.tr("trajectorylens.panel.despawn_tooltip"),
             () -> {
                 this.loot.toggleDespawnWarn();
                 act();
             });
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7颜色: /trajectorylens color <物品id> <RRGGBB>")), this.font));
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.item_color_hint")), this.font));
     }
 
     /** Inline "current watch list" rows shared by the drops and mob pages. */
     private void addWatchedRows(GridLayout.RowHelper helper, int w, List<String> watched, boolean forItems) {
         if (watched.isEmpty()) {
-            helper.addChild(new StringWidget(Component.literal(Lang.tr("§7当前观察: 全部 (点上方搜索即可限定)")), this.font));
+            helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.watching_all")), this.font));
             return;
         }
         int shown = Math.min(3, watched.size());
@@ -269,7 +273,7 @@ public class ModConfigScreen extends Screen {
             }).width(w).build());
         }
         if (watched.size() > 3) {
-            helper.addChild(new StringWidget(Component.literal(Lang.tr("§7…等 ") + watched.size() + Lang.tr(" 种(移除后显示其余)")), this.font));
+            helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.more_types", watched.size())), this.font));
         }
     }
 
@@ -278,22 +282,22 @@ public class ModConfigScreen extends Screen {
     /** Mobs: threat readout plus the walk-range prediction and its watch list. */
     private void buildMobPage(GridLayout.RowHelper helper, int w) {
         addToggle(helper, w,
-            () -> Lang.tr("威胁指示: ") + (this.threats.enabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("给附近的敌对生物标出 锁定/警戒/未察觉 状态与连线(客户端推断)。"),
+            () -> toggleText("trajectorylens.panel.threat", this.threats.enabled()),
+            Lang.tr("trajectorylens.panel.threat_tooltip"),
             () -> {
                 this.threats.toggle();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("行走范围盘: ") + (this.ranges.isEnabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("显示被观察实体类型的极限可达范围,快捷键见 按键 页。"),
+            () -> toggleText("trajectorylens.panel.range", this.ranges.isEnabled()),
+            Lang.tr("trajectorylens.panel.range_tooltip"),
             () -> {
                 this.ranges.toggle();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("预测时长: ") + this.ranges.horizonSeconds() + Lang.tr(" 秒"),
-            Lang.tr("范围盘预测未来多少秒的可达范围。越长越远、重算越贵。"),
+            () -> Lang.tr("trajectorylens.panel.range_horizon", this.ranges.horizonSeconds()),
+            Lang.tr("trajectorylens.panel.range_horizon_tooltip"),
             () -> {
                 int cur = this.ranges.horizonSeconds();
                 int next = switch (cur) {
@@ -307,77 +311,83 @@ public class ModConfigScreen extends Screen {
                 this.ranges.setHorizon(next);
                 act();
             });
-        helper.addChild(Button.builder(Component.literal(Lang.tr("＋ 搜索添加生物类型…")), b ->
+        helper.addChild(Button.builder(Component.literal(Lang.tr("trajectorylens.panel.search_entity")), b ->
             this.minecraft.gui.setScreen(new SearchPickerScreen(this.lastScreen, this.drops, this.ranges, this.projectiles, this.flow,
                 this.census, this.threats, this.loot, false, this.page))
         ).width(w).build());
-        helper.addChild(Button.builder(Component.literal(Lang.tr("清空观察 (恢复显示全部类型)")), b -> {
+        helper.addChild(Button.builder(Component.literal(Lang.tr("trajectorylens.panel.clear_type_watch")), b -> {
             this.ranges.clearTypes();
             act();
         }).width(w).build());
         addWatchedRows(helper, w, this.ranges.typeIdsSnapshot(), false);
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7颜色: range color <类型> <RRGGBB>")), this.font));
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.range_color_hint")), this.font));
     }
 
 
     /** Projectiles in flight, the held-item aim preview and the blast warning. */
     private void buildProjectilePage(GridLayout.RowHelper helper, int w) {
         addToggle(helper, w,
-            () -> Lang.tr("投掷物轨迹: ") + (this.projectiles.projectilesEnabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("预测箭/三叉戟/雪球/鸡蛋/末影珍珠/药水/火球的飞行路线与命中目标。"),
+            () -> toggleText("trajectorylens.panel.projectiles", this.projectiles.projectilesEnabled()),
+            Lang.tr("trajectorylens.panel.projectiles_tooltip"),
             () -> {
                 this.projectiles.toggleProjectiles();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("手持瞄准预测: ") + (this.projectiles.aimEnabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("手持投掷类物品时实时显示瞄准落点;") + System.lineSeparator() + Lang.tr("末影珍珠还会标注传送到哪、落点是否危险。"),
+            () -> toggleText("trajectorylens.panel.aim", this.projectiles.aimEnabled()),
+            Lang.tr("trajectorylens.panel.aim_tooltip"),
             () -> {
                 this.projectiles.toggleAim();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("爆炸预警: ") + (this.projectiles.tntEnabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("TNT/苦力怕引信倒计时 + 爆炸球体半径标注,支持被点燃的TNT矿车。"),
+            () -> toggleText("trajectorylens.panel.tnt", this.projectiles.tntEnabled()),
+            Lang.tr("trajectorylens.panel.tnt_tooltip"),
             () -> {
                 this.projectiles.toggleTnt();
                 act();
             });
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7箭/雪球落点按 26.2 参数逐 tick 复算,命中点标名字")), this.font));
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7末影珍珠额外标传送落点、自伤与危险判定")), this.font));
+        addToggle(helper, w,
+            () -> Lang.tr("trajectorylens.panel.text_size", this.projectiles.textPercent()),
+            Lang.tr("trajectorylens.panel.text_size_tooltip"),
+            () -> {
+                this.projectiles.cycleTextPercent();
+                act();
+            });
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.projectiles_note")), this.font));
     }
 
     /** What an explosion does next: chained blasts, launched entities, falling blocks. */
     private void buildBlastPage(GridLayout.RowHelper helper, int w) {
         addToggle(helper, w,
-            () -> Lang.tr("因果链推演: ") + (this.projectiles.chainEnabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("从预计爆炸点继续推演: 连锁引爆(含 TNT 矿车)、被推物品与生物的落地结论、方块后果。"),
+            () -> toggleText("trajectorylens.panel.chain", this.projectiles.chainEnabled()),
+            Lang.tr("trajectorylens.panel.chain_tooltip"),
             () -> {
                 this.projectiles.toggleChain();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("推演层数: ") + this.projectiles.chainDepth() + Lang.tr(" 层"),
-            Lang.tr("爆炸后继续追几层连锁(点击循环 1/2/3/4)。层数越多开销越大。"),
+            () -> Lang.tr("trajectorylens.panel.chain_depth", this.projectiles.chainDepth()),
+            Lang.tr("trajectorylens.panel.chain_depth_tooltip"),
             () -> {
                 this.projectiles.cycleChainDepth();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("击退推演时长: ") + this.projectiles.chainHorizonSeconds() + Lang.tr(" 秒"),
-            Lang.tr("被炸飞的物品/生物各推演多久的飞行(点击循环 3/6/9/12 秒)。"),
+            () -> Lang.tr("trajectorylens.panel.chain_horizon", this.projectiles.chainHorizonSeconds()),
+            Lang.tr("trajectorylens.panel.chain_horizon_tooltip"),
             () -> {
                 this.projectiles.cycleChainHorizon();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("下落方块落点: ") + (this.projectiles.fallingEnabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("沙子/沙砾/铁砧/钟乳石等下落方块显示落点;正下方有人时标红提醒。"),
+            () -> toggleText("trajectorylens.panel.falling", this.projectiles.fallingEnabled()),
+            Lang.tr("trajectorylens.panel.falling_tooltip"),
             () -> {
                 this.projectiles.toggleFalling();
                 act();
             });
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7箭头=连锁爆炸点,弧线=被推的东西,末端写落点")), this.font));
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.chain_note")), this.font));
     }
 
     /** Logistics: entity census, chokepoint counters with trend, hopper jams. */
@@ -385,34 +395,34 @@ public class ModConfigScreen extends Screen {
         helper.addChild(new StringWidget(Component.literal("§e" + this.census.compact()), this.font));
         helper.addChild(new StringWidget(Component.literal("§6" + this.loot.summary()), this.font));
         addToggle(helper, w,
-            () -> Lang.tr("漏斗堵塞检测: ") + (this.flow.jamEnabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("物品停在漏斗上不动超过阈值就标出来: 漏斗堵了(红框)还是被红石关掉了(蓝框)。"),
+            () -> toggleText("trajectorylens.panel.jam", this.flow.jamEnabled()),
+            Lang.tr("trajectorylens.panel.jam_tooltip"),
             () -> {
                 this.flow.toggleJam();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("堵塞判定时长: ") + this.flow.jamSeconds() + Lang.tr(" 秒"),
-            Lang.tr("物品在漏斗上静止多久算堵塞(点击循环 3/5/6/8/10/15/30 秒)。"),
+            () -> Lang.tr("trajectorylens.panel.jam_time", this.flow.jamSeconds()),
+            Lang.tr("trajectorylens.panel.jam_time_tooltip"),
             () -> {
                 this.flow.cycleJamSeconds();
                 act();
             });
         addToggle(helper, w,
-            () -> Lang.tr("卡口计数器: ") + (this.flow.countersEnabled() ? Lang.tr("§a开") : Lang.tr("§7关")),
-            Lang.tr("显示虚拟计数面:物品穿越该面时计数,给出 每分钟速率 与 上游堆积数。适合统计漏斗/水道产能。"),
+            () -> toggleText("trajectorylens.panel.counters", this.flow.countersEnabled()),
+            Lang.tr("trajectorylens.panel.counters_tooltip"),
             () -> {
                 this.flow.toggleCounters();
                 act();
             });
-        helper.addChild(Button.builder(Component.literal(Lang.tr("＋ 在准星处添加计数器")), b -> {
+        helper.addChild(Button.builder(Component.literal(Lang.tr("trajectorylens.panel.add_counter")), b -> {
             String name = "c" + (this.flow.counters().size() + 1);
             String err = this.flow.addCounter(name);
             var pl = this.minecraft.player;
             if (pl != null) {
                 pl.sendSystemMessage(Component.literal(err != null
                     ? "[TrajectoryLens] " + err
-                    : Lang.tr("[TrajectoryLens] 已添加计数器 ") + name + Lang.tr(" (想改名用 /trajectorylens counter add <名字>)")));
+                    : Lang.tr("trajectorylens.panel.counter_added", name)));
             }
             act();
         }).width(w).build());
@@ -420,7 +430,7 @@ public class ModConfigScreen extends Screen {
         int shown = 0;
         for (var c : this.flow.counters().values()) {
             if (shown++ >= 2) {
-                helper.addChild(new StringWidget(Component.literal(Lang.tr("§7…等 ") + this.flow.counters().size() + Lang.tr(" 个(counter list 看全部)")), this.font));
+                helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.more_counters", this.flow.counters().size())), this.font));
                 break;
             }
             final String name = c.name;
@@ -429,23 +439,23 @@ public class ModConfigScreen extends Screen {
                 case -1 -> "§c↓";
                 default -> "§7→";
             };
-            Button row = Button.builder(Component.literal(String.format(Lang.tr("✕ §f%s§7: §e%d/min §b%s %s§7堆积%.0f"),
-                    name, c.perMinute(), c.spark(), dir, c.backlog)), b -> {
+            Button row = Button.builder(Component.literal(Lang.tr("trajectorylens.panel.counter_row",
+                    name, c.perMinute(), c.spark(), dir, Lang.fixed(c.backlog, 0))), b -> {
                 this.flow.removeCounter(name);
                 act();
             }).width(w).build();
-            row.setTooltip(Tooltip.create(Component.literal(Lang.tr("点一下移除该计数器。\n色带=最近 3 分钟每分钟吞吐(每 15 秒采样),↑↓=趋势。"))));
+            row.setTooltip(Tooltip.create(Component.literal(Lang.tr("trajectorylens.panel.counter_row_tooltip"))));
             helper.addChild(row);
         }
         if (this.flow.counters().isEmpty()) {
-            helper.addChild(new StringWidget(Component.literal(Lang.tr("§7没有计数器(上方按钮或 counter add <名字>)")), this.font));
+            helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.no_counters")), this.font));
         }
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7红框=漏斗堵了 · 蓝框=被红石关掉 · 全量导出用 export")), this.font));
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.jam_legend")), this.font));
     }
 
     /** Tools: dump state to chat, export a report file, vanilla key settings, cheatsheet. */
     private void buildToolsPage(GridLayout.RowHelper helper, int w) {
-        Button listBtn = Button.builder(Component.literal(Lang.tr("查看 颜色/观察列表/开关(聊天输出)")), b -> {
+        Button listBtn = Button.builder(Component.literal(Lang.tr("trajectorylens.panel.dump")), b -> {
             var pl = this.minecraft.player;
             if (pl != null) {
                 pl.sendSystemMessage(Component.literal("[TrajectoryLens] " + this.drops.listing()));
@@ -454,29 +464,29 @@ public class ModConfigScreen extends Screen {
                 pl.sendSystemMessage(Component.literal("[TrajectoryLens] " + this.flow.summary()));
             }
         }).width(w).build();
-        listBtn.setTooltip(Tooltip.create(Component.literal(Lang.tr("把当前颜色、观察列表与所有开关状态输出到聊天栏。"))));
+        listBtn.setTooltip(Tooltip.create(Component.literal(Lang.tr("trajectorylens.panel.dump_tooltip"))));
         helper.addChild(listBtn);
 
-        Button exportBtn = Button.builder(Component.literal(Lang.tr("导出报告到 config/")), b -> {
+        Button exportBtn = Button.builder(Component.literal(Lang.tr("trajectorylens.panel.export")), b -> {
             var f = Report.write(Report.lines(this.drops, this.ranges, this.projectiles, this.flow,
                 this.census, this.threats, this.loot));
             var pl = this.minecraft.player;
             if (pl != null) {
                 pl.sendSystemMessage(Component.literal(f != null
-                    ? Lang.tr("[TrajectoryLens] 报告已写入 ") + f.getName()
-                    : Lang.tr("[TrajectoryLens] 报告写入失败")));
+                    ? Lang.tr("trajectorylens.command.report_written", f.getName())
+                    : Lang.tr("trajectorylens.command.report_failed")));
             }
         }).width(w).build();
-        exportBtn.setTooltip(Tooltip.create(Component.literal(Lang.tr("把实体普查、计数器(含趋势)、堵塞、失踪溯源写成 txt,方便对比不同时间的产量。"))));
+        exportBtn.setTooltip(Tooltip.create(Component.literal(Lang.tr("trajectorylens.panel.export_tooltip"))));
         helper.addChild(exportBtn);
 
-        Button keysBtn = Button.builder(Component.literal(Lang.tr("打开 原版按键设置")), b ->
+        Button keysBtn = Button.builder(Component.literal(Lang.tr("trajectorylens.panel.vanilla_controls")), b ->
             this.minecraft.gui.setScreen(new net.minecraft.client.gui.screens.options.controls.ControlsScreen(this, this.minecraft.options))
         ).width(w).build();
-        keysBtn.setTooltip(Tooltip.create(Component.literal(Lang.tr("原版控制页;掉落物轨迹的 G 键在此搜索 TrajectoryLens 修改。"))));
+        keysBtn.setTooltip(Tooltip.create(Component.literal(Lang.tr("trajectorylens.panel.vanilla_controls_tooltip"))));
         helper.addChild(keysBtn);
 
-        Button reportBtn = Button.builder(Component.literal(Lang.tr("查看失踪记录 (/trajectorylens lost)")), b -> {
+        Button reportBtn = Button.builder(Component.literal(Lang.tr("trajectorylens.panel.lost_log")), b -> {
             var pl = this.minecraft.player;
             if (pl != null) {
                 for (String line : this.loot.report()) {
@@ -484,21 +494,31 @@ public class ModConfigScreen extends Screen {
                 }
             }
         }).width(w).build();
-        reportBtn.setTooltip(Tooltip.create(Component.literal(Lang.tr("最近消失的物品、原因与位置。"))));
+        reportBtn.setTooltip(Tooltip.create(Component.literal(Lang.tr("trajectorylens.panel.lost_log_tooltip"))));
         helper.addChild(reportBtn);
 
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7物流: census · flowcount · jam · export")), this.font));
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7物品: toggle · target <id> · color <id> <色>")), this.font));
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7战斗: projectiles · tnt · aim · chain · falling")), this.font));
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7显示: range add <类型> · losttime · glowtime · gui")), this.font));
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.cmd_logistics")), this.font));
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.cmd_items")), this.font));
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.cmd_combat")), this.font));
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.cmd_display")), this.font));
     }
 
     private void buildKeysPage(GridLayout.RowHelper helper, int w) {
-        bindRangeBtn = bindRow(helper, w, Lang.tr("行走范围开关"),
-            Lang.tr("点击后直接按新键(可多键组合,最多3个),松开即绑定。Esc 取消,退格清除。"), 1);
-        bindPanelBtn = bindRow(helper, w, Lang.tr("打开控制面板"),
-            Lang.tr("绑定打开本面板的组合键,规则同上。"), 2);
-        helper.addChild(new StringWidget(Component.literal(Lang.tr("§7玩法: 点击行 → 按住新组合键 → 松手完成")), this.font));
+        bindRangeBtn = bindRow(helper, w, Lang.tr("trajectorylens.panel.range_chord"),
+            Lang.tr("trajectorylens.panel.chord_tooltip"), 1);
+        bindPanelBtn = bindRow(helper, w, Lang.tr("trajectorylens.panel.panel_chord"),
+            Lang.tr("trajectorylens.panel.panel_chord_tooltip"), 2);
+        helper.addChild(new StringWidget(Component.literal(Lang.tr("trajectorylens.panel.chord_howto")), this.font));
+    }
+
+    private String bindingText() {
+        return Lang.tr("trajectorylens.panel.binding", this.pressed.isEmpty()
+            ? Lang.tr("trajectorylens.panel.press_keys")
+            : KeySettings.display(KeySettings.chordFrom(List.copyOf(this.pressed))));
+    }
+
+    private static String toggleText(String key, boolean on) {
+        return Lang.tr(key, Lang.tr(on ? "trajectorylens.panel.on" : "trajectorylens.panel.off"));
     }
 
     private void addToggle(GridLayout.RowHelper helper, int w, Supplier<String> text, String tooltip, Runnable action) {
@@ -512,7 +532,7 @@ public class ModConfigScreen extends Screen {
     }
 
     private Button bindRow(GridLayout.RowHelper helper, int w, String name, String tooltip, int target) {
-        Button b = Button.builder(Component.literal(Lang.tr("占位")), btn -> {
+        Button b = Button.builder(Component.literal(Lang.tr("trajectorylens.panel.placeholder")), btn -> {
             if (this.binding == target) {
                 this.binding = 0;
                 this.pressed.clear();
@@ -550,14 +570,14 @@ public class ModConfigScreen extends Screen {
         }
         if (this.bindRangeBtn != null) {
             String t = this.binding == 1
-                ? Lang.tr("§e绑定中: ") + (this.pressed.isEmpty() ? Lang.tr("按新键…") : KeySettings.display(KeySettings.chordFrom(List.copyOf(this.pressed))))
-                : Lang.tr("行走范围开关: [ ") + KeySettings.display(KeySettings.rangeChord) + Lang.tr(" ]  点击绑定");
+                ? bindingText()
+                : Lang.tr("trajectorylens.panel.range_chord_label", KeySettings.display(KeySettings.rangeChord));
             this.bindRangeBtn.setMessage(Component.literal(t));
         }
         if (this.bindPanelBtn != null) {
             String t = this.binding == 2
-                ? Lang.tr("§e绑定中: ") + (this.pressed.isEmpty() ? Lang.tr("按新键…") : KeySettings.display(KeySettings.chordFrom(List.copyOf(this.pressed))))
-                : Lang.tr("打开控制面板: [ ") + KeySettings.display(KeySettings.panelChord) + Lang.tr(" ]  点击绑定");
+                ? bindingText()
+                : Lang.tr("trajectorylens.panel.panel_chord_label", KeySettings.display(KeySettings.panelChord));
             this.bindPanelBtn.setMessage(Component.literal(t));
         }
     }
@@ -665,12 +685,13 @@ public class ModConfigScreen extends Screen {
         }
         Set<String> have = new LinkedHashSet<>();
         if (forItems) {
+            List<String> watched = watchItemIds();
             for (ItemEntity e : level.getEntitiesOfClass(ItemEntity.class, player.getBoundingBox().inflate(48.0))) {
                 if (!e.isAlive() || e.getItem().isEmpty()) {
                     continue;
                 }
                 String id = OverlayState.itemIdOf(e.getItem());
-                if (id == null || have.contains(id) || watchItemIds().contains(id)) {
+                if (id == null || have.contains(id) || watched.contains(id)) {
                     continue;
                 }
                 have.add(id);
@@ -680,12 +701,13 @@ public class ModConfigScreen extends Screen {
                 }
             }
         } else {
+            List<String> watched = this.ranges.typeIdsSnapshot();
             for (Mob m : level.getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(48.0))) {
                 if (!m.isAlive()) {
                     continue;
                 }
                 String id = WalkRangeOverlay.typeIdOf(m);
-                if (id == null || have.contains(id) || this.ranges.typeIdsSnapshot().contains(id)) {
+                if (id == null || have.contains(id) || watched.contains(id)) {
                     continue;
                 }
                 have.add(id);

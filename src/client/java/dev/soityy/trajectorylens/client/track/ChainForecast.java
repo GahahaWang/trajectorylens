@@ -6,8 +6,11 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.SectionPos;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -18,6 +21,9 @@ import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.FallingBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -40,6 +46,7 @@ public final class ChainForecast {
     public static final int[] HORIZON_CHOICES = {60, 120, 180, 240};
 
     private static final int MAX_PUSH = 8;
+    private static final Predicate<BlockState> IS_TNT = s -> s.is(Blocks.TNT);
 
     public static final class Step {
         public int delayTicks;
@@ -82,7 +89,7 @@ public final class ChainForecast {
         first.delayTicks = Math.max(0, fuseTicks);
         first.pos = center;
         first.power = power;
-        first.label = source instanceof PrimedTnt ? "TNT" : Lang.tr("爆炸");
+        first.label = source instanceof PrimedTnt ? Lang.tr("trajectorylens.projectile.tnt") : Lang.tr("trajectorylens.chain.step_blast");
         first.order = 1;
         plan.steps.add(first);
         // every phase is isolated: a broken entity / unloaded chunk must degrade the plan, not crash
@@ -114,7 +121,7 @@ public final class ChainForecast {
             s.delayTicks = parent.delayTicks + 20; // destroyed carts fuse 0-38 ticks; 20 is the average
             s.pos = cart.position();
             s.power = 4.0F;
-            s.label = Lang.tr("TNT矿车连锁");
+            s.label = Lang.tr("trajectorylens.chain.step_tnt_cart");
             s.order = plan.steps.size() + 1;
             plan.steps.add(s);
             expand(level, plan, s, carts, depth + 1);
@@ -128,21 +135,58 @@ public final class ChainForecast {
             s.delayTicks = Math.max(0, tnt.getFuse());
             s.pos = arc.landing != null ? arc.landing : tnt.position();
             s.power = 4.0F;
-            s.label = Lang.tr("被炸飞的 TNT");
+            s.label = Lang.tr("trajectorylens.chain.step_tnt_launched");
             s.order = plan.steps.size() + 1;
             plan.steps.add(s);
         }
-        int tntBlocks = 0;
-        BlockPos origin = BlockPos.containing(parent.pos);
-        int r = (int) Math.ceil(parent.power * 2.0);
-        for (BlockPos bp : BlockPos.betweenClosed(origin.offset(-r, -r, -r), origin.offset(r, r, r))) {
-            if (level.getBlockState(bp).is(Blocks.TNT)) {
-                tntBlocks++;
+        int tntBlocks = countTntBlocks(level, BlockPos.containing(parent.pos), (int) Math.ceil(parent.power * 2.0));
+        if (tntBlocks > 0) {
+            plan.notes.add(Lang.tr("trajectorylens.chain.tnt_blocks_destroyed", tntBlocks));
+        }
+    }
+
+    private static int countTntBlocks(Level level, BlockPos origin, int r) {
+        int minX = origin.getX() - r;
+        int minY = origin.getY() - r;
+        int minZ = origin.getZ() - r;
+        int maxX = origin.getX() + r;
+        int maxY = origin.getY() + r;
+        int maxZ = origin.getZ() + r;
+        int count = 0;
+        for (int cx = SectionPos.blockToSectionCoord(minX); cx <= SectionPos.blockToSectionCoord(maxX); cx++) {
+            for (int cz = SectionPos.blockToSectionCoord(minZ); cz <= SectionPos.blockToSectionCoord(maxZ); cz++) {
+                LevelChunk chunk = level.getChunkSource().getChunkNow(cx, cz);
+                if (chunk == null) {
+                    continue;
+                }
+                for (int sy = SectionPos.blockToSectionCoord(minY); sy <= SectionPos.blockToSectionCoord(maxY); sy++) {
+                    int index = chunk.getSectionIndexFromSectionY(sy);
+                    if (index < 0 || index >= chunk.getSectionsCount()) {
+                        continue;
+                    }
+                    LevelChunkSection section = chunk.getSection(index);
+                    if (section.hasOnlyAir() || !section.maybeHas(IS_TNT)) {
+                        continue;
+                    }
+                    int x0 = Math.max(minX, SectionPos.sectionToBlockCoord(cx));
+                    int x1 = Math.min(maxX, SectionPos.sectionToBlockCoord(cx) + 15);
+                    int y0 = Math.max(minY, SectionPos.sectionToBlockCoord(sy));
+                    int y1 = Math.min(maxY, SectionPos.sectionToBlockCoord(sy) + 15);
+                    int z0 = Math.max(minZ, SectionPos.sectionToBlockCoord(cz));
+                    int z1 = Math.min(maxZ, SectionPos.sectionToBlockCoord(cz) + 15);
+                    for (int y = y0; y <= y1; y++) {
+                        for (int z = z0; z <= z1; z++) {
+                            for (int x = x0; x <= x1; x++) {
+                                if (section.getBlockState(x & 15, y & 15, z & 15).is(Blocks.TNT)) {
+                                    count++;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-        if (tntBlocks > 0) {
-            plan.notes.add("§c" + tntBlocks + Lang.tr(" 个 TNT 方块将被摧毁(不会被引爆)"));
-        }
+        return count;
     }
 
     private static Vec3 pushVelocity(Entity e, Vec3 center, float power) {
@@ -193,36 +237,36 @@ public final class ChainForecast {
     }
 
     private static String describe(Level level, Entity e, PushArc arc, Vec3 center) {
-        String name = e instanceof net.minecraft.world.entity.player.Player ? Lang.tr("你") : e.getName().getString();
+        String name = e instanceof net.minecraft.world.entity.player.Player ? Lang.tr("trajectorylens.chain.you") : e.getName().getString();
         if (arc.landing == null) {
             arc.verdict = Verdict.AIRBORNE;
-            return String.format(Lang.tr("§7%s: 轨迹未落地"), name);
+            return Lang.tr("trajectorylens.chain.verdict_airborne", name);
         }
         BlockPos lp = BlockPos.containing(arc.landing);
         if (arc.landing.y < level.getMinY() + 1) {
             arc.verdict = Verdict.VOID;
-            return String.format(Lang.tr("§5%s → 虚空"), name);
+            return Lang.tr("trajectorylens.chain.verdict_void", name);
         }
         if (level.getFluidState(lp).is(FluidTags.LAVA)) {
             arc.verdict = Verdict.LAVA;
-            return String.format(Lang.tr("§c%s → 岩浆!"), name);
+            return Lang.tr("trajectorylens.chain.verdict_lava", name);
         }
         if (level.getBlockState(lp).is(Blocks.CACTUS)) {
             arc.verdict = Verdict.CACTUS;
-            return String.format(Lang.tr("§2%s → 仙人掌"), name);
+            return Lang.tr("trajectorylens.chain.verdict_cactus", name);
         }
         if (level.getFluidState(lp).is(FluidTags.WATER)) {
             arc.verdict = Verdict.WATER;
-            return String.format(Lang.tr("§b%s → 水里(安全)"), name);
+            return Lang.tr("trajectorylens.chain.verdict_water", name);
         }
         double fall = center.y - arc.landing.y;
         if (fall > 4) {
             int dmg = (int) Math.floor(fall - 3);
             arc.verdict = Verdict.FALL;
-            return String.format(Lang.tr("§e%s → 摔落 %d 点"), name, dmg);
+            return Lang.tr("trajectorylens.chain.verdict_fall", name, dmg);
         }
         arc.verdict = Verdict.SAFE;
-        return String.format(Lang.tr("§7%s → 安全落地"), name);
+        return Lang.tr("trajectorylens.chain.verdict_safe", name);
     }
 
     /** Simple push-flight: gravity + drag per tick, ray-clipped against the world. */
@@ -234,6 +278,10 @@ public final class ChainForecast {
         Vec3 pos = start;
         Vec3 v = velocity;
         arc.points.add(pos);
+        // NOTE: ClipContext's Entity overload calls CollisionContext.of(entity), which NPEs on null;
+        // non-living entities (items / TNT) therefore use the empty context explicitly.
+        CollisionContext ctx = e instanceof LivingEntity && e.level() != null
+            ? CollisionContext.of(e) : CollisionContext.empty();
         for (int t = 0; t < horizonTicks; t++) {
             v = v.add(0, -gravity, 0);
             boolean inWater = level.getFluidState(BlockPos.containing(pos)).is(FluidTags.WATER);
@@ -243,15 +291,22 @@ public final class ChainForecast {
                 v = v.scale(0.98);
             }
             Vec3 to = pos.add(v);
-            // NOTE: ClipContext's Entity overload calls CollisionContext.of(entity), which NPEs on null;
-            // non-living entities (items / TNT) therefore use the empty context explicitly.
-            CollisionContext ctx = e instanceof LivingEntity && e.level() != null
-                ? CollisionContext.of(e) : CollisionContext.empty();
             var hit = level.clip(new ClipContext(pos, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, ctx));
             if (hit.getType() != HitResult.Type.MISS) {
-                arc.points.add(hit.getLocation());
-                arc.landing = hit.getLocation();
-                return arc;
+                Direction face = hit.getDirection();
+                if (face == Direction.UP) {
+                    arc.points.add(hit.getLocation());
+                    arc.landing = hit.getLocation();
+                    return arc;
+                }
+                pos = hit.getLocation().add(face.getStepX() * 1.0E-3, face.getStepY() * 1.0E-3, face.getStepZ() * 1.0E-3);
+                v = switch (face.getAxis()) {
+                    case X -> new Vec3(0, v.y, v.z);
+                    case Z -> new Vec3(v.x, v.y, 0);
+                    case Y -> new Vec3(v.x, 0, v.z);
+                };
+                arc.points.add(pos);
+                continue;
             }
             arc.points.add(to);
             pos = to;
@@ -297,7 +352,9 @@ public final class ChainForecast {
             }
         }
         if (columns > 0) {
-            plan.notes.add("§6" + columns + " 个下落方块将砸落" + (crushing > 0 ? " §c(其中 " + crushing + " 处下面有生物!)" : ""));
+            plan.notes.add(crushing > 0
+                ? Lang.tr("trajectorylens.chain.falling_note_crushing", columns, crushing)
+                : Lang.tr("trajectorylens.chain.falling_note", columns));
         }
     }
 }

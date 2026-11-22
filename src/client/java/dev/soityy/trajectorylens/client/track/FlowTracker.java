@@ -25,6 +25,8 @@ public final class FlowTracker {
 
     public static final double SCAN_RADIUS = 64.0;
     public static final double COUNTER_RANGE = 24.0;
+    private static final double STILL_DIST_SQR = 4.0E-4;
+    private static final int JAM_GAP_TICKS = 10;
 
     /** Queue durations offered on the jam row (seconds). */
     public static final int[] JAM_CHOICES = {3, 5, 6, 8, 10, 15, 30};
@@ -45,6 +47,7 @@ public final class FlowTracker {
         public String sample = "";
         /** Filled in by {@link #jams()} so renderers know how long the queue has been stuck. */
         public int heldTicks;
+        private int sampleId = Integer.MAX_VALUE;
 
         public Jam(Hoppers.Hit hit, int tick) {
             this.hit = hit;
@@ -195,7 +198,7 @@ public final class FlowTracker {
         Minecraft mc = Minecraft.getInstance();
         var player = mc.player;
         if (player == null || mc.level == null) {
-            return "not in a world";
+            return Lang.tr("trajectorylens.error.no_world");
         }
         var hit = player.pick(16.0, 0.0F, false);
         Vec3 pt;
@@ -244,13 +247,11 @@ public final class FlowTracker {
     }
 
     public String summary() {
-        StringBuilder sb = new StringBuilder("counters=" + (this.countersOn ? "on" : "off")
-            + ", jam=" + (this.jamOn ? "on/" + this.jamSeconds + "s" : "off")
-            + ", count=" + this.counters.size());
+        String jam = this.jamOn ? Lang.tr("trajectorylens.flow.jam_on", this.jamSeconds) : Lang.onOff(false);
+        StringBuilder sb = new StringBuilder(Lang.tr("trajectorylens.flow.summary",
+            Lang.onOff(this.countersOn), jam, this.counters.size()));
         for (Counter c : this.counters.values()) {
-            sb.append(" | ").append(c.name).append(": ").append(c.perMinute()).append("/min").append(c.spark())
-                .append(Lang.tr(", 堆积 "))
-                .append(String.format("%.0f", c.backlog));
+            sb.append(Lang.tr("trajectorylens.flow.summary_counter", c.name, c.perMinute(), c.spark(), Lang.fixed(c.backlog, 0)));
         }
         return sb.toString();
     }
@@ -260,6 +261,10 @@ public final class FlowTracker {
         ClientLevel level = mc.level;
         if (level == null || mc.player == null) {
             this.counters.clear();
+            return;
+        }
+        if (!this.jamOn && (!this.countersOn || this.counters.isEmpty())) {
+            this.jams.clear();
             return;
         }
         List<ItemEntity> items = level.getEntitiesOfClass(ItemEntity.class,
@@ -275,6 +280,7 @@ public final class FlowTracker {
         int slot60 = (this.tick / 20) % 60;
         int slot300 = this.tick % 300;
         for (Counter c : this.counters.values()) {
+            Vec3 center = c.pos();
             if (this.tick % 20 == 0) {
                 c.sec60[slot60] = 0;
                 if (slot300 < c.sec300.length) {
@@ -290,7 +296,7 @@ public final class FlowTracker {
                 }
             }
             for (ItemEntity e : items) {
-                if (e.position().distanceTo(c.pos()) > COUNTER_RANGE) {
+                if (e.position().distanceTo(center) > COUNTER_RANGE) {
                     continue;
                 }
                 Vec3 cur = e.position();
@@ -317,7 +323,7 @@ public final class FlowTracker {
                 int backlog = 0;
                 for (ItemEntity e : items) {
                     double s = side(e.position(), c);
-                    if (s > 0 && e.position().distanceTo(c.pos()) < 8.0 && within(c, e.position())) {
+                    if (s > 0 && e.position().distanceTo(center) < 8.0 && within(c, e.position())) {
                         backlog++;
                     }
                 }
@@ -335,12 +341,13 @@ public final class FlowTracker {
         Map<Long, Jam> seen = new HashMap<>();
         List<MinecartHopper> carts = new ArrayList<>();
         boolean cartsLoaded = false;
+        Hoppers.Probe probe = new Hoppers.Probe(level, 1, 1, 0);
         for (ItemEntity e : items) {
             Vec3 p = e.position();
-            if (!e.isAlive() || !e.onGround() || e.getDeltaMovement().lengthSqr() > 4.0E-4) {
+            if (!e.isAlive() || !e.onGround() || p.distanceToSqr(e.xo, e.yo, e.zo) > STILL_DIST_SQR) {
                 continue; // still moving: not queued
             }
-            Hoppers.Hit hit = Hoppers.find(level, p, 1, 1, 0, 0.4, true, false);
+            Hoppers.Hit hit = probe.find(p, 0.4, true);
             if (hit == null) {
                 if (!cartsLoaded) {
                     cartsLoaded = true;
@@ -361,18 +368,22 @@ public final class FlowTracker {
             Jam jam = seen.get(key);
             if (jam == null) {
                 Jam old = this.jams.get(key);
-                if (old != null && this.tick - old.lastSeenTick <= 2) {
-                    jam = old;                       // same queue as last tick: keep its start time
+                if (old != null && this.tick - old.lastSeenTick <= JAM_GAP_TICKS) {
+                    jam = old;                       // same queue as moments ago: keep its start time
                 } else {
                     jam = new Jam(hit, this.tick);   // a fresh queue starts here
                 }
                 jam.hit = hit;
                 jam.items = 0;
-                jam.sample = e.getItem().getHoverName().getString();
+                jam.sampleId = Integer.MAX_VALUE;
                 seen.put(key, jam);
             }
             jam.items++;
             jam.lastSeenTick = this.tick;
+            if (e.getId() < jam.sampleId) {
+                jam.sampleId = e.getId();
+                jam.sample = e.getItem().getHoverName().getString();
+            }
         }
         // drop queues that cleared (the hopper finally took them)
         this.jams.entrySet().removeIf(en -> this.tick - en.getValue().lastSeenTick > 20);
@@ -382,14 +393,14 @@ public final class FlowTracker {
     public String jamSummary() {
         List<Jam> list = jams();
         if (list.isEmpty()) {
-            return Lang.tr("堵塞检测=") + (this.jamOn ? "on" : "off") + Lang.tr(" 当前无堵塞");
+            return Lang.tr("trajectorylens.flow.jam_summary_none", Lang.onOff(this.jamOn));
         }
-        StringBuilder sb = new StringBuilder(Lang.tr("堵塞检测=") + (this.jamOn ? "on" : "off") + " " + list.size() + Lang.tr(" 处"));
+        StringBuilder sb = new StringBuilder(Lang.tr("trajectorylens.flow.jam_summary", Lang.onOff(this.jamOn), list.size()));
         for (Jam j : list) {
-            sb.append(" | ").append(j.hit.locked() ? Lang.tr("红石锁定") : Lang.tr("堵塞"))
-                .append(" @(").append((int) j.hit.center().x).append(",").append((int) j.hit.center().y)
-                .append(",").append((int) j.hit.center().z).append(") ").append(j.items).append(Lang.tr(" 件 "))
-                .append(String.format("%.1fs", j.heldTicks / 20.0));
+            Vec3 c = j.hit.center();
+            sb.append(Lang.tr("trajectorylens.flow.jam_entry",
+                j.hit.locked() ? Lang.tr("trajectorylens.flow.redstone_locked") : Lang.tr("trajectorylens.flow.jammed"),
+                (int) c.x, (int) c.y, (int) c.z, j.items, Lang.fixed(j.heldTicks / 20.0, 1)));
         }
         return sb.toString();
     }

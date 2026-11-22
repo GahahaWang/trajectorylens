@@ -2,13 +2,18 @@ package dev.soityy.trajectorylens.client.track;
 
 import dev.soityy.trajectorylens.client.Lang;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.projectile.Projectile;
@@ -17,6 +22,8 @@ import net.minecraft.world.item.BowItem;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -28,19 +35,30 @@ public final class ProjectileOverlay {
     public static final int MAX_ENTRIES = 12;
     public static final double SCAN_RADIUS = 48.0;
     private static final int RECOMPUTE_TICKS = 3;
+    private static final double POS_EPS = 0.04;
+    private static final double VEL_EPS = 0.0025;
+    private static final int FUSE_EPS = 2;
+    private static final int MAX_FOLLOW_STEPS = 4;
+    private static final int MAX_RISKY = 8;
+    private static final double STUCK_SPEED_SQR = 1.0E-4;
+    public static final int[] TEXT_PERCENT_CHOICES = {50, 75, 100, 125, 150, 200};
+    private static final Comparator<BlockPos> SCAN_ORDER = Comparator.<BlockPos>comparingInt(p -> p.getZ())
+        .thenComparingInt(p -> p.getY())
+        .thenComparingInt(p -> p.getX());
 
     private boolean projectilesOn = true;
     private boolean tntOn = true;
     private boolean aimOn = true;          // held-item aiming preview
     private boolean chainOn = true;        // causal chain forecast
     private boolean fallingOn = true;      // falling-block landing forecast
+    private int textPercent = 100;
     private final java.util.List<Falling> falling = new java.util.ArrayList<>();
     private ProjectileKind aimKind;
     private ProjectileSim.Result aimResult;
     private String aimLabel = "";
-    private Vec3 aimPearlDest;
-    private String aimPearlText = "";
-    private boolean aimPearlDanger;
+    private Vec3 aimStart;
+    private Vec3 aimVel;
+    private int aimTick = -1;
     private final Map<Integer, Entry> entries = new LinkedHashMap<>();
     private ProjectileSim sim;
     private int tick;
@@ -59,10 +77,6 @@ public final class ProjectileOverlay {
         public long impactTick = -100;
         public String impactText = "";
         public final java.util.List<net.minecraft.core.BlockPos> risky = new java.util.ArrayList<>();
-        // ender pearl teleport analysis
-        public Vec3 pearlDest;
-        public String pearlText = "";
-        public boolean pearlDanger;
         public ChainForecast.Plan chain;
     }
 
@@ -105,9 +119,7 @@ public final class ProjectileOverlay {
     public void setAim(boolean on) {
         this.aimOn = on;
         if (!on) {
-            this.aimKind = null;
-            this.aimResult = null;
-            this.aimLabel = "";
+            this.clearAim();
         }
     }
 
@@ -171,6 +183,24 @@ public final class ProjectileOverlay {
         ChainForecast.horizonTicks = c[0];
     }
 
+    public int textPercent() {
+        return this.textPercent;
+    }
+
+    public void setTextPercent(int percent) {
+        this.textPercent = Math.max(25, Math.min(400, percent));
+    }
+
+    public void cycleTextPercent() {
+        for (int v : TEXT_PERCENT_CHOICES) {
+            if (v > this.textPercent) {
+                this.textPercent = v;
+                return;
+            }
+        }
+        this.textPercent = TEXT_PERCENT_CHOICES[0];
+    }
+
     public @org.jspecify.annotations.Nullable ProjectileKind aimKind() {
         return this.aimKind;
     }
@@ -181,18 +211,6 @@ public final class ProjectileOverlay {
 
     public String aimLabel() {
         return this.aimLabel;
-    }
-
-    public Vec3 aimPearlDest() {
-        return this.aimPearlDest;
-    }
-
-    public String aimPearlText() {
-        return this.aimPearlText;
-    }
-
-    public boolean aimPearlDanger() {
-        return this.aimPearlDanger;
     }
 
     public Map<Integer, Entry> entries() {
@@ -220,16 +238,12 @@ public final class ProjectileOverlay {
     }
 
     /** One falling block: where it started, where it will land, what it will hit. */
-    public record Falling(Vec3 from, Vec3 landing, String block, String crush, int ticks) {
+    public record Falling(Entity entity, Vec3 from, Vec3 landing, String block, String crush, int ticks) {
     }
 
     public String summary() {
-        return "projectiles=" + (this.projectilesOn ? "on" : "off")
-            + ", tnt=" + (this.tntOn ? "on" : "off")
-            + ", aim=" + (this.aimOn ? "on" : "off")
-            + ", chain=" + (this.chainOn ? "on" : "off")
-            + ", falling=" + (this.fallingOn ? "on" : "off")
-            + ", tracked=" + this.entries.size();
+        return Lang.tr("trajectorylens.projectile.summary", Lang.onOff(this.projectilesOn), Lang.onOff(this.tntOn),
+            Lang.onOff(this.aimOn), Lang.onOff(this.chainOn), Lang.onOff(this.fallingOn), this.entries.size());
     }
 
     /**
@@ -237,12 +251,10 @@ public final class ProjectileOverlay {
      * while charging, and throwables in hand. Launch velocity mirrors vanilla
      * (direction * power + shooter movement; BowItem#getPowerForTime).
      */
-    private void updateAim(Minecraft mc) {
-        this.aimKind = null;
-        this.aimResult = null;
-        this.aimLabel = "";
+    public void updateAim(Minecraft mc, float partialTick) {
         var p = mc.player;
-        if (p == null) {
+        if (!this.aimOn || p == null || this.sim == null) {
+            this.clearAim();
             return;
         }
         for (InteractionHand hand : InteractionHand.values()) {
@@ -263,62 +275,71 @@ public final class ProjectileOverlay {
                 }
                 kind = ProjectileKind.ARROW;
                 speed = power * 3.0;
-                label = String.format(Lang.tr("拉弦 %d%%"), Math.round(power * 100));
+                label = Lang.tr("trajectorylens.projectile.aim_bow", Math.round(power * 100));
             } else if (st.is(Items.CROSSBOW)) {
                 if (!CrossbowItem.isCharged(st)) {
                     continue;
                 }
                 kind = ProjectileKind.ARROW;
                 speed = 3.15;
-                label = Lang.tr("弩已上膛");
+                label = Lang.tr("trajectorylens.projectile.aim_crossbow");
             } else if (st.is(Items.TRIDENT)) {
                 if (!p.isUsingItem() || !ItemStack.isSameItemSameComponents(p.getUseItem(), st)) {
                     continue;
                 }
                 kind = ProjectileKind.TRIDENT;
                 speed = 2.5;
-                label = Lang.tr("三叉戟");
+                label = Lang.tr("trajectorylens.projectile.trident");
             } else if (st.is(Items.SNOWBALL)) {
                 kind = ProjectileKind.SNOWBALL;
                 speed = 1.5;
-                label = Lang.tr("雪球");
+                label = Lang.tr("trajectorylens.projectile.snowball");
             } else if (st.is(Items.EGG)) {
                 kind = ProjectileKind.EGG;
                 speed = 1.5;
-                label = Lang.tr("鸡蛋");
+                label = Lang.tr("trajectorylens.projectile.egg");
             } else if (st.is(Items.ENDER_PEARL)) {
                 kind = ProjectileKind.ENDER_PEARL;
                 speed = 1.5;
-                label = Lang.tr("末影珍珠");
+                label = Lang.tr("trajectorylens.projectile.ender_pearl");
             } else if (st.is(Items.SPLASH_POTION) || st.is(Items.LINGERING_POTION)) {
                 kind = ProjectileKind.POTION;
                 speed = 1.5;
-                label = Lang.tr("药水");
+                label = Lang.tr("trajectorylens.projectile.potion");
             } else if (st.is(Items.EXPERIENCE_BOTTLE)) {
                 kind = ProjectileKind.SNOWBALL;
                 speed = 1.5;
-                label = Lang.tr("经验瓶");
+                label = Lang.tr("trajectorylens.projectile.xp_bottle");
             }
             if (kind == null) {
                 continue;
             }
-            Vec3 dir = p.getViewVector(1.0F);
+            Vec3 start = p.getEyePosition(partialTick);
+            Vec3 dir = p.getViewVector(partialTick);
             Vec3 v = dir.scale(speed);
             Vec3 mv = p.getDeltaMovement();
             v = v.add(mv.x, p.onGround() ? 0.0 : mv.y, mv.z);
-            this.aimKind = kind;
             this.aimLabel = label;
-            this.aimResult = this.sim.simulate(kind, p.getEyePosition(), v, -1, p.getId(), -1, 200);
-            if (kind == ProjectileKind.ENDER_PEARL) {
-                PearlInfo info = analyzePearl(this.aimResult);
-                if (info != null) {
-                    this.aimPearlDest = info.dest();
-                    this.aimPearlText = info.text();
-                    this.aimPearlDanger = info.danger();
-                }
+            if (kind == this.aimKind && this.aimResult != null && this.aimTick == this.tick
+                && start.equals(this.aimStart) && v.equals(this.aimVel)) {
+                return;
             }
+            this.aimKind = kind;
+            this.aimStart = start;
+            this.aimVel = v;
+            this.aimTick = this.tick;
+            this.aimResult = this.sim.simulate(kind, start, v, -1, p.getId(), -1, 200);
             return;
         }
+        this.clearAim();
+    }
+
+    private void clearAim() {
+        this.aimKind = null;
+        this.aimResult = null;
+        this.aimLabel = "";
+        this.aimStart = null;
+        this.aimVel = null;
     }
 
     private void onTick(Minecraft mc) {
@@ -332,9 +353,6 @@ public final class ProjectileOverlay {
         }
         if (this.sim == null) {
             this.sim = new ProjectileSim(level);
-        }
-        if (this.aimOn && this.tick % 2 == 0) {
-            updateAim(mc);
         }
 
         Iterator<Map.Entry<Integer, Entry>> it = this.entries.entrySet().iterator();
@@ -356,6 +374,10 @@ public final class ProjectileOverlay {
                 continue;
             }
             Vec3 vel = ent.getDeltaMovement();
+            if (ent instanceof AbstractArrow && isStuck(level, ent, vel)) {
+                this.entries.remove(ent.getId());
+                continue;
+            }
             boolean interesting = kind == ProjectileKind.TNT || vel.lengthSqr() > 1.0E-6 || ent instanceof AbstractArrow;
             if (!interesting) {
                 continue;
@@ -376,26 +398,24 @@ public final class ProjectileOverlay {
             }
             en.entity = ent;
             en.counter++;
-            boolean due = en.result == null
-                || en.counter >= RECOMPUTE_TICKS
-                || en.lastPos.distanceToSqr(ent.position()) > 0.04
-                || en.lastVel.distanceToSqr(vel) > 0.0025
-                || (fuse >= 0 && Math.abs(fuse - en.lastFuse) > 2);
-            if (due) {
+            int step = en.result == null || en.counter >= RECOMPUTE_TICKS ? -1 : followedStep(en, ent.position(), vel, fuse);
+            if (step >= 0) {
+                if (step > 0) {
+                    en.lastPos = en.result.points.get(step);
+                    en.lastVel = en.result.vels.get(step);
+                    en.lastFuse = fuse;
+                    en.result.advance(step);
+                }
+                if (fuse > 0) {
+                    en.result.fuseRemaining = fuse;
+                }
+            } else {
                 en.counter = 0;
                 en.lastPos = ent.position();
                 en.lastVel = vel;
                 en.lastFuse = fuse;
                 int ownerId = ent instanceof Projectile proj && proj.getOwner() != null ? proj.getOwner().getId() : -1;
                 en.result = this.sim.simulate(kind, ent.position(), vel, fuse, ownerId, id, 200);
-                if (kind == ProjectileKind.ENDER_PEARL) {
-                    PearlInfo info = analyzePearl(en.result);
-                    if (info != null) {
-                        en.pearlDest = info.dest();
-                        en.pearlText = info.text();
-                        en.pearlDanger = info.danger();
-                    }
-                }
             }
             if (en.explosionPower > 0 && this.tick - en.impactTick >= 20) {
                 Vec3 center = en.result != null && en.result.explosionPos != null
@@ -431,10 +451,12 @@ public final class ProjectileOverlay {
                     land.x + 0.6, land.y + 0.4, land.z + 0.6);
                 for (net.minecraft.world.entity.LivingEntity le
                     : level.getEntitiesOfClass(net.minecraft.world.entity.LivingEntity.class, box)) {
-                    crush = le == mc.player ? Lang.tr("砸到你!") : (Lang.tr("砸到 ") + le.getName().getString() + "!");
+                    crush = le == mc.player
+                        ? Lang.tr("trajectorylens.projectile.falling_hits_you")
+                        : Lang.tr("trajectorylens.projectile.falling_hits", le.getName().getString());
                     break;
                 }
-                this.falling.add(new Falling(fb.position(), land,
+                this.falling.add(new Falling(fb, fb.position(), land,
                     fb.getBlockState().getBlock().getName().getString(), crush, Math.max(1, arc.points.size() - 1)));
             }
         }
@@ -487,69 +509,32 @@ public final class ProjectileOverlay {
         }
     }
 
-    public record PearlInfo(Vec3 dest, String text, boolean danger) {
+    private static boolean isStuck(ClientLevel level, Entity arrow, Vec3 vel) {
+        Vec3 pos = arrow.position();
+        return vel.lengthSqr() < STUCK_SPEED_SQR && !level.noCollision(new net.minecraft.world.phys.AABB(pos, pos).inflate(0.06));
     }
 
-    /**
-     * Ender pearl landing analysis. The teleport target is the pearl position one
-     * tick before impact (vanilla uses oldPosition()), fall distance is reset by
-     * the teleport so any drop from there causes real fall damage.
-     */
-    private PearlInfo analyzePearl(ProjectileSim.Result r) {
-        ClientLevel level = Minecraft.getInstance().level;
-        if (level == null || r == null || r.points.size() < 2 || r.hit == null) {
-            return null;
+    private static int followedStep(Entry en, Vec3 pos, Vec3 vel, int fuse) {
+        int best = -1;
+        double bestErr = Double.MAX_VALUE;
+        double seedErr = en.lastPos.distanceToSqr(pos);
+        if (seedErr <= POS_EPS && en.lastVel.distanceToSqr(vel) <= VEL_EPS
+            && (fuse < 0 || Math.abs(fuse - en.lastFuse) <= FUSE_EPS)) {
+            best = 0;
+            bestErr = seedErr;
         }
-        Vec3 dest = r.points.get(r.points.size() - 2);
-        net.minecraft.core.BlockPos feet = net.minecraft.core.BlockPos.containing(dest);
-        boolean danger = false;
-        StringBuilder sb = new StringBuilder();
-        if (dest.y < level.getMinY() + 1) {
-            sb.append(Lang.tr("§c虚空! 传过去就没了"));
-            danger = true;
-        } else {
-            var state = level.getBlockState(feet);
-            boolean inLava = state.getFluidState().is(net.minecraft.tags.FluidTags.LAVA);
-            boolean inWater = state.getFluidState().is(net.minecraft.tags.FluidTags.WATER);
-            boolean blocked = !state.getCollisionShape(level, feet).isEmpty();
-            if (inLava) {
-                sb.append(Lang.tr("§c落点岩浆: 传送即重伤"));
-                danger = true;
-            } else if (inWater) {
-                sb.append(Lang.tr("§a落点水中: 无落地伤害"));
-            } else if (blocked) {
-                sb.append(Lang.tr("§c落点在方块内部: 窒息风险"));
-                danger = true;
-            } else {
-                int groundY = Integer.MIN_VALUE;
-                for (int y = feet.getY() - 1; y > Math.max(level.getMinY(), feet.getY() - 64); y--) {
-                    var below = level.getBlockState(new net.minecraft.core.BlockPos(feet.getX(), y, feet.getZ()));
-                    if (below.getFluidState().is(net.minecraft.tags.FluidTags.WATER)) {
-                        groundY = y + 1;
-                        sb.append(Lang.tr("§a落点水面: 无落地伤害"));
-                        break;
-                    }
-                    if (!below.getCollisionShape(level, new net.minecraft.core.BlockPos(feet.getX(), y, feet.getZ())).isEmpty()) {
-                        groundY = y + 1;
-                        int fall = (int) Math.floor(dest.y - groundY);
-                        if (fall > 3) {
-                            int dmg = fall - 3;
-                            sb.append(Lang.tr("§e下坠 ")).append(fall).append(Lang.tr(" 格: 约 ")).append(dmg).append(Lang.tr(" 点摔落伤害(未计护具)"));
-                            danger = dmg >= 6;
-                        } else {
-                            sb.append(Lang.tr("§a可直接落地"));
-                        }
-                        break;
-                    }
-                }
-                if (groundY == Integer.MIN_VALUE) {
-                    sb.append(Lang.tr("§c下方无地面: 持续下坠"));
-                    danger = true;
-                }
+        List<Vec3> points = en.result.points;
+        List<Vec3> vels = en.result.vels;
+        int last = Math.min(MAX_FOLLOW_STEPS, Math.min(points.size(), vels.size()) - 1);
+        for (int k = 1; k <= last; k++) {
+            double err = points.get(k).distanceToSqr(pos);
+            if (err <= POS_EPS && err < bestErr && vels.get(k).distanceToSqr(vel) <= VEL_EPS
+                && (fuse < 0 || Math.abs(fuse - (en.lastFuse - k)) <= FUSE_EPS)) {
+                best = k;
+                bestErr = err;
             }
         }
-        sb.append(Lang.tr("  §7(传送自伤 5)"));
-        return new PearlInfo(dest, sb.toString(), danger);
+        return best;
     }
 
     /** Lists what an explosion would hit: entities by category and risky blocks. */
@@ -581,65 +566,69 @@ public final class ProjectileOverlay {
         int spawners = 0;
         en.risky.clear();
         int r = (int) Math.ceil(radius);
-        net.minecraft.core.BlockPos origin = net.minecraft.core.BlockPos.containing(center);
-        for (net.minecraft.core.BlockPos p : net.minecraft.core.BlockPos.betweenClosed(
-            origin.offset(-r, -r, -r), origin.offset(r, r, r))) {
-            var be = level.getBlockEntity(p);
-            if (be == null) {
-                continue;
+        BlockPos origin = BlockPos.containing(center);
+        int minX = origin.getX() - r;
+        int minY = origin.getY() - r;
+        int minZ = origin.getZ() - r;
+        int maxX = origin.getX() + r;
+        int maxY = origin.getY() + r;
+        int maxZ = origin.getZ() + r;
+        List<BlockPos> found = new ArrayList<>();
+        for (int cx = SectionPos.blockToSectionCoord(minX); cx <= SectionPos.blockToSectionCoord(maxX); cx++) {
+            for (int cz = SectionPos.blockToSectionCoord(minZ); cz <= SectionPos.blockToSectionCoord(maxZ); cz++) {
+                LevelChunk chunk = level.getChunkSource().getChunkNow(cx, cz);
+                if (chunk == null) {
+                    continue;
+                }
+                for (BlockEntity be : chunk.getBlockEntities().values()) {
+                    BlockPos p = be.getBlockPos();
+                    if (p.getX() < minX || p.getX() > maxX || p.getY() < minY || p.getY() > maxY
+                        || p.getZ() < minZ || p.getZ() > maxZ) {
+                        continue;
+                    }
+                    if (be instanceof net.minecraft.world.level.block.entity.SpawnerBlockEntity) {
+                        spawners++;
+                    } else if (be instanceof net.minecraft.world.level.block.entity.ChestBlockEntity
+                        || be instanceof net.minecraft.world.level.block.entity.BarrelBlockEntity
+                        || be instanceof net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity) {
+                        containers++;
+                    } else if (be instanceof net.minecraft.world.level.block.entity.HopperBlockEntity) {
+                        hoppers++;
+                    } else {
+                        continue;
+                    }
+                    found.add(p);
+                }
             }
-            if (be instanceof net.minecraft.world.level.block.entity.SpawnerBlockEntity) {
-                spawners++;
-            } else if (be instanceof net.minecraft.world.level.block.entity.ChestBlockEntity
-                || be instanceof net.minecraft.world.level.block.entity.BarrelBlockEntity
-                || be instanceof net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity) {
-                containers++;
-            } else if (be instanceof net.minecraft.world.level.block.entity.HopperBlockEntity) {
-                hoppers++;
-            } else {
-                continue;
-            }
-            if (en.risky.size() < 8) {
-                en.risky.add(p.immutable());
-            }
         }
-        StringBuilder sb = new StringBuilder(Lang.tr("波及: "));
-        boolean any = false;
-        if (players > 0) {
-            sb.append(Lang.tr("玩家")).append(players).append(' ');
-            any = true;
+        found.sort(SCAN_ORDER);
+        for (int i = 0; i < found.size() && i < MAX_RISKY; i++) {
+            en.risky.add(found.get(i).immutable());
         }
-        if (villagers > 0) {
-            sb.append(Lang.tr("村民")).append(villagers).append(' ');
-            any = true;
-        }
-        if (tamed > 0) {
-            sb.append(Lang.tr("宠物")).append(tamed).append(' ');
-            any = true;
-        }
-        if (mobs > 0) {
-            sb.append(Lang.tr("其他生物")).append(mobs);
-            any = true;
-        }
-        if (!any) {
-            sb.append(Lang.tr("无生物"));
-        }
+        List<String> hit = new ArrayList<>();
+        addCount(hit, "trajectorylens.projectile.impact_players", players);
+        addCount(hit, "trajectorylens.projectile.impact_villagers", villagers);
+        addCount(hit, "trajectorylens.projectile.impact_pets", tamed);
+        addCount(hit, "trajectorylens.projectile.impact_mobs", mobs);
+        StringBuilder sb = new StringBuilder(Lang.tr("trajectorylens.projectile.impact",
+            hit.isEmpty() ? Lang.tr("trajectorylens.projectile.impact_no_mobs") : String.join(" ", hit)));
         var pl = Minecraft.getInstance().player;
         if (pl != null && pl.position().distanceTo(center) <= radius) {
-            sb.append(Lang.tr(" §c⚠你在范围内"));
+            sb.append(Lang.tr("trajectorylens.projectile.impact_you_inside"));
         }
-        if (containers + hoppers + spawners > 0) {
-            sb.append(Lang.tr("  §e风险: "));
-            if (containers > 0) {
-                sb.append(Lang.tr("容器")).append(containers).append(' ');
-            }
-            if (hoppers > 0) {
-                sb.append(Lang.tr("漏斗")).append(hoppers).append(' ');
-            }
-            if (spawners > 0) {
-                sb.append(Lang.tr("刷怪笼")).append(spawners);
-            }
+        List<String> risk = new ArrayList<>();
+        addCount(risk, "trajectorylens.projectile.impact_containers", containers);
+        addCount(risk, "trajectorylens.projectile.impact_hoppers", hoppers);
+        addCount(risk, "trajectorylens.projectile.impact_spawners", spawners);
+        if (!risk.isEmpty()) {
+            sb.append(Lang.tr("trajectorylens.projectile.impact_risk", String.join(" ", risk)));
         }
         en.impactText = sb.toString();
+    }
+
+    private static void addCount(List<String> out, String key, int count) {
+        if (count > 0) {
+            out.add(Lang.tr(key, count));
+        }
     }
 }

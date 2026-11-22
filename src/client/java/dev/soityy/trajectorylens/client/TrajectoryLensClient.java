@@ -41,6 +41,7 @@ public class TrajectoryLensClient implements ClientModInitializer {
     private static LootTracker loot;
     private static boolean cfgLoaded;
     private static boolean panelPrev;
+    private static boolean panelRequested;
     private static int autosaveCounter;
 
     public static OverlayState drops() {
@@ -73,7 +74,14 @@ public class TrajectoryLensClient implements ClientModInitializer {
 
     /** Opens the in-game control panel (if not already on a screen). */
     public static void openPanel() {
-        Minecraft mc = Minecraft.getInstance();
+        panelRequested = true;
+    }
+
+    private static void showRequestedPanel(Minecraft mc) {
+        if (!panelRequested) {
+            return;
+        }
+        panelRequested = false;
         if (mc.gui.screen() == null && state != null && ranges != null && projectiles != null && flow != null) {
             mc.gui.setScreen(new ModConfigScreen(null, state, ranges, projectiles, flow, census, threats, loot, 0));
         }
@@ -93,8 +101,8 @@ public class TrajectoryLensClient implements ClientModInitializer {
         SettingsIO.snapshot(state, ranges, projectiles, flow, threats, loot).save();
         var pl = Minecraft.getInstance().player;
         if (pl != null) {
-            pl.sendSystemMessage(Component.literal("[TrajectoryLens] "
-                + (isProjectiles ? Lang.tr("投掷物轨迹") : Lang.tr("TNT 爆炸预测")) + " -> " + (on ? Lang.tr("开") : Lang.tr("关"))));
+            pl.sendSystemMessage(Component.literal(ClientCommands.changed(
+                isProjectiles ? "trajectorylens.feature.projectiles" : "trajectorylens.feature.tnt", Lang.onOff(on))));
         }
     }
 
@@ -108,7 +116,7 @@ public class TrajectoryLensClient implements ClientModInitializer {
         SettingsIO.snapshot(state, ranges, projectiles, flow, threats, loot).save();
         var pl = Minecraft.getInstance().player;
         if (pl != null) {
-            pl.sendSystemMessage(Component.literal(Lang.tr("[TrajectoryLens] 卡口计数器 -> ") + (on ? Lang.tr("开") : Lang.tr("关"))));
+            pl.sendSystemMessage(Component.literal(ClientCommands.changed("trajectorylens.feature.counters", Lang.onOff(on))));
         }
     }
 
@@ -122,20 +130,20 @@ public class TrajectoryLensClient implements ClientModInitializer {
                 if (player != null) {
                     player.sendSystemMessage(Component.literal(err != null
                         ? "[TrajectoryLens] " + err
-                        : Lang.tr("[TrajectoryLens] 已添加计数器: ") + name + Lang.tr(" (准星处)")));
+                        : Lang.tr("trajectorylens.command.counter_added", name)));
                 }
             }
             case "remove" -> {
                 boolean ok = flow.removeCounter(name);
                 if (player != null) {
-                    player.sendSystemMessage(Component.literal("[TrajectoryLens] "
-                        + (ok ? Lang.tr("已移除计数器: ") + name : Lang.tr("没有这个计数器: ") + name)));
+                    player.sendSystemMessage(Component.literal(Lang.tr(ok
+                        ? "trajectorylens.command.counter_removed" : "trajectorylens.command.counter_missing", name)));
                 }
             }
             case "clear" -> {
                 flow.clearCounters();
                 if (player != null) {
-                    player.sendSystemMessage(Component.literal(Lang.tr("[TrajectoryLens] 已清空所有计数器")));
+                    player.sendSystemMessage(Component.literal(Lang.tr("trajectorylens.command.counters_cleared")));
                 }
             }
             default -> {
@@ -202,6 +210,7 @@ public class TrajectoryLensClient implements ClientModInitializer {
                 projectiles.setFalling(cfg.fallingOn);
                 projectiles.setChainDepth(cfg.chainDepth);
                 projectiles.setChainHorizonSeconds(cfg.chainHorizonSeconds);
+                projectiles.setTextPercent(cfg.projectileTextPercent);
                 flow.setCounters(cfg.flowCountersOn);
                 for (var c : cfg.counters) {
                     flow.loadCounter(c.name, c.x, c.y, c.z, c.nx, c.ny, c.nz, c.w, c.h);
@@ -225,6 +234,7 @@ public class TrajectoryLensClient implements ClientModInitializer {
                 }
                 panelPrev = chord;
             }
+            showRequestedPanel(mc);
             // periodic autosave keeps G/O+P toggles & commands persisted
             if (++autosaveCounter % 300 == 0 && state != null && ranges != null && projectiles != null
                 && flow != null && threats != null) {
@@ -243,13 +253,13 @@ public class TrajectoryLensClient implements ClientModInitializer {
                 if ("toggle".equals(v)) {
                     state.toggle();
                     if (player != null) {
-                        player.sendSystemMessage(
-                            Component.literal("[TrajectoryLens] drops " + (state.visible() ? "on" : "off")));
+                        player.sendSystemMessage(Component.literal(
+                            ClientCommands.changed("trajectorylens.feature.drops", Lang.onOff(state.visible()))));
                     }
                 } else if ("clear".equals(v)) {
                     state.clearTargets();
                     if (player != null) {
-                        player.sendSystemMessage(Component.literal("[TrajectoryLens] watch cleared: tracking all items"));
+                        player.sendSystemMessage(Component.literal(Lang.tr("trajectorylens.command.watch_cleared")));
                     }
                 } else if (v.startsWith("target:")) {
                     String itemId = v.substring("target:".length());
@@ -257,7 +267,7 @@ public class TrajectoryLensClient implements ClientModInitializer {
                     if (player != null) {
                         player.sendSystemMessage(Component.literal(err != null
                             ? "[TrajectoryLens] " + err
-                            : "[TrajectoryLens] added " + itemId + " — watching: " + state.targetName()));
+                            : Lang.tr("trajectorylens.command.target_added", itemId, state.targetName())));
                     }
                 } else if (v.startsWith("color:")) {
                     String rest = v.substring("color:".length());
@@ -270,7 +280,7 @@ public class TrajectoryLensClient implements ClientModInitializer {
                             player.sendSystemMessage(Component.literal("[TrajectoryLens] " + err));
                         } else {
                             player.sendSystemMessage(Component.literal(
-                                "[TrajectoryLens] color of " + id + " -> " + (spec.equalsIgnoreCase("auto") ? "auto" : "#" + spec)));
+                                Lang.tr("trajectorylens.command.item_color", id, ClientCommands.colorLabel(spec))));
                         }
                     }
                 } else if (v.equals("list")) {
@@ -293,7 +303,7 @@ public class TrajectoryLensClient implements ClientModInitializer {
                     projectiles.setChain(on);
                     SettingsIO.snapshot(state, ranges, projectiles, flow, threats, loot).save();
                     if (player != null) {
-                        player.sendSystemMessage(Component.literal(Lang.tr("[TrajectoryLens] 因果链推演 -> ") + (on ? Lang.tr("开") : Lang.tr("关"))));
+                        player.sendSystemMessage(Component.literal(ClientCommands.changed("trajectorylens.feature.chain", Lang.onOff(on))));
                     }
                 } else if (v.startsWith("losttrack:")) {
                     boolean on = switch (v.substring(10)) {
@@ -304,13 +314,13 @@ public class TrajectoryLensClient implements ClientModInitializer {
                     loot.setEnabled(on);
                     SettingsIO.snapshot(state, ranges, projectiles, flow, threats, loot).save();
                     if (player != null) {
-                        player.sendSystemMessage(Component.literal(Lang.tr("[TrajectoryLens] 失踪溯源 -> ") + (on ? Lang.tr("开") : Lang.tr("关"))));
+                        player.sendSystemMessage(Component.literal(ClientCommands.changed("trajectorylens.feature.losttrack", Lang.onOff(on))));
                     }
                 } else if (v.startsWith("jam:") || v.startsWith("despawn:") || v.startsWith("falling:")) {
                     boolean jam = v.startsWith("jam:");
                     boolean despawn = v.startsWith("despawn:");
                     String op = v.substring(v.indexOf(':') + 1);
-                    String label = jam ? Lang.tr("漏斗堵塞检测") : despawn ? Lang.tr("物品寿命提醒") : Lang.tr("下落方块落点");
+                    String label = jam ? "trajectorylens.feature.jam" : despawn ? "trajectorylens.feature.despawn" : "trajectorylens.feature.falling";
                     boolean value;
                     if (jam) {
                         value = switch (op) {
@@ -336,7 +346,7 @@ public class TrajectoryLensClient implements ClientModInitializer {
                     }
                     SettingsIO.snapshot(state, ranges, projectiles, flow, threats, loot).save();
                     if (player != null) {
-                        player.sendSystemMessage(Component.literal("[TrajectoryLens] " + label + " -> " + (value ? Lang.tr("开") : Lang.tr("关"))));
+                        player.sendSystemMessage(Component.literal(ClientCommands.changed(label, Lang.onOff(value))));
                     }
                 } else if (v.startsWith("chaindepth:") || v.startsWith("chainhorizon:")) {
                     boolean depth = v.startsWith("chaindepth:");
@@ -361,15 +371,16 @@ public class TrajectoryLensClient implements ClientModInitializer {
                     }
                     SettingsIO.snapshot(state, ranges, projectiles, flow, threats, loot).save();
                     if (player != null) {
-                        player.sendSystemMessage(Component.literal("[TrajectoryLens] " + (depth ? Lang.tr("因果链层数") : Lang.tr("击退推演时长")) + " -> "
-                            + (depth ? projectiles.chainDepth() + Lang.tr(" 层") : projectiles.chainHorizonSeconds() + Lang.tr(" 秒"))));
+                        player.sendSystemMessage(Component.literal(depth
+                            ? ClientCommands.changed("trajectorylens.feature.chain_depth", Lang.tr("trajectorylens.common.layers", projectiles.chainDepth()))
+                            : ClientCommands.changed("trajectorylens.feature.chain_horizon", Lang.tr("trajectorylens.common.seconds", projectiles.chainHorizonSeconds()))));
                     }
                 } else if (v.equals("export")) {
                     var f = Report.write(Report.lines(state, ranges, projectiles, flow, census, threats, loot));
                     if (player != null) {
                         player.sendSystemMessage(Component.literal(f != null
-                            ? Lang.tr("[TrajectoryLens] 报告已写入 ") + f.getName()
-                            : Lang.tr("[TrajectoryLens] 报告写入失败")));
+                            ? Lang.tr("trajectorylens.command.report_written", f.getName())
+                            : Lang.tr("trajectorylens.command.report_failed")));
                     }
                 } else if (v.startsWith("losttime:") || v.startsWith("glowtime:") || v.startsWith("jamtime:")) {
                     String kind = v.substring(0, v.indexOf(':'));
@@ -407,18 +418,21 @@ public class TrajectoryLensClient implements ClientModInitializer {
                     }
                     SettingsIO.snapshot(state, ranges, projectiles, flow, threats, loot).save();
                     if (player != null) {
-                        String label = switch (kind) {
-                            case "losttime" -> Lang.tr("失踪标记显示 -> ") + loot.markerSeconds() + Lang.tr(" 秒");
-                            case "glowtime" -> Lang.tr("漏斗高亮时长 -> ") + loot.glowSeconds() + Lang.tr(" 秒");
-                            default -> Lang.tr("堵塞判定时长 -> ") + flow.jamSeconds() + Lang.tr(" 秒");
+                        String message = switch (kind) {
+                            case "losttime" -> ClientCommands.changed("trajectorylens.feature.lost_time",
+                                Lang.tr("trajectorylens.common.seconds", loot.markerSeconds()));
+                            case "glowtime" -> ClientCommands.changed("trajectorylens.feature.glow_time",
+                                Lang.tr("trajectorylens.common.seconds", loot.glowSeconds()));
+                            default -> ClientCommands.changed("trajectorylens.feature.jam_time",
+                                Lang.tr("trajectorylens.common.seconds", flow.jamSeconds()));
                         };
-                        player.sendSystemMessage(Component.literal("[TrajectoryLens] " + label));
+                        player.sendSystemMessage(Component.literal(message));
                     }
                 } else if (v.equals("lost") || v.startsWith("lost:")) {
                     if (player != null) {
                         if (v.endsWith(":clear")) {
                             loot.clear();
-                            player.sendSystemMessage(Component.literal(Lang.tr("[TrajectoryLens] 失踪记录已清空")));
+                            player.sendSystemMessage(Component.literal(Lang.tr("trajectorylens.command.lost_cleared")));
                         } else {
                             for (String line : loot.report()) {
                                 player.sendSystemMessage(Component.literal(line));
@@ -434,7 +448,7 @@ public class TrajectoryLensClient implements ClientModInitializer {
                     threats.setEnabled(on);
                     SettingsIO.snapshot(state, ranges, projectiles, flow, threats, loot).save();
                     if (player != null) {
-                        player.sendSystemMessage(Component.literal(Lang.tr("[TrajectoryLens] 威胁指示 -> ") + (on ? Lang.tr("开") : Lang.tr("关"))));
+                        player.sendSystemMessage(Component.literal(ClientCommands.changed("trajectorylens.feature.threat", Lang.onOff(on))));
                     }
                 } else if (v.startsWith("aim:")) {
                     boolean on = switch (v.substring(4)) {
@@ -445,7 +459,7 @@ public class TrajectoryLensClient implements ClientModInitializer {
                     projectiles.setAim(on);
                     SettingsIO.snapshot(state, ranges, projectiles, flow, threats, loot).save();
                     if (player != null) {
-                        player.sendSystemMessage(Component.literal(Lang.tr("[TrajectoryLens] 手持瞄准预测 -> ") + (on ? Lang.tr("开") : Lang.tr("关"))));
+                        player.sendSystemMessage(Component.literal(ClientCommands.changed("trajectorylens.feature.aim", Lang.onOff(on))));
                     }
                 } else if (v.startsWith("flowcount:")) {
                     applyFlowSwitch(v.substring(10));
@@ -454,12 +468,13 @@ public class TrajectoryLensClient implements ClientModInitializer {
                 } else if (v.equals("rangetoggle")) {
                     ranges.toggle();
                     if (player != null) {
-                        player.sendSystemMessage(Component.literal("[TrajectoryLens] walk ranges " + (ranges.isEnabled() ? "on" : "off")));
+                        player.sendSystemMessage(Component.literal(
+                            ClientCommands.changed("trajectorylens.feature.range", Lang.onOff(ranges.isEnabled()))));
                     }
                 } else if (v.equals("rangeclear")) {
                     ranges.clearTypes();
                     if (player != null) {
-                        player.sendSystemMessage(Component.literal("[TrajectoryLens] range watch cleared (no walk ranges)"));
+                        player.sendSystemMessage(Component.literal(Lang.tr("trajectorylens.command.range_cleared")));
                     }
                 } else if (v.startsWith("rangeadd:")) {
                     String typeRaw = v.substring("rangeadd:".length());
@@ -467,14 +482,14 @@ public class TrajectoryLensClient implements ClientModInitializer {
                     if (player != null) {
                         player.sendSystemMessage(Component.literal(err != null
                             ? "[TrajectoryLens] " + err
-                            : "[TrajectoryLens] added " + typeRaw + " to range watch — " + ranges.summary()));
+                            : Lang.tr("trajectorylens.command.range_added", typeRaw, ranges.summary())));
                     }
                 } else if (v.startsWith("rangetime:")) {
                     try {
                         int sec = Integer.parseInt(v.substring("rangetime:".length()));
                         ranges.setHorizon(sec);
                         if (player != null) {
-                            player.sendSystemMessage(Component.literal("[TrajectoryLens] range horizon = " + ranges.horizonSeconds() + "s"));
+                            player.sendSystemMessage(Component.literal(Lang.tr("trajectorylens.command.range_time", ranges.horizonSeconds())));
                         }
                     } catch (NumberFormatException ignored) {
                     }
@@ -489,7 +504,7 @@ public class TrajectoryLensClient implements ClientModInitializer {
                             player.sendSystemMessage(Component.literal("[TrajectoryLens] " + err));
                         } else {
                             player.sendSystemMessage(Component.literal(
-                                "[TrajectoryLens] range color of " + id + " -> " + (spec.equalsIgnoreCase("auto") ? "auto" : "#" + spec)));
+                                Lang.tr("trajectorylens.command.range_color", id, ClientCommands.colorLabel(spec))));
                         }
                     }
                 } else if (v.equals("census")) {
